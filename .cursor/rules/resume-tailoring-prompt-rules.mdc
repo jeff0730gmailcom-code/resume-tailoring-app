@@ -1,0 +1,75 @@
+---
+description: Resume tailoring behavior rules the AI prompt must enforce
+globs: backend/app/prompts/**,backend/app/services/ai_tailor.py,backend/app/models/schemas.py
+alwaysApply: false
+---
+
+# Resume Tailoring Rules
+
+Always tailor toward the Job Description, targeting an ATS match above 95%.
+
+# Identity Facts (never AI-authored)
+
+Company names, employment dates, education, and certifications must exactly
+match the master CV — never invent, alter, or drop these. Only resume
+*content* may change — never the layout/stylesheet (that's controlled by the
+user-selected template in `app/services/template_renderer.py`, not the AI —
+see `template-preservation-rules.mdc`).
+
+# Job Titles
+
+The final output always uses the master CV's own original job title for
+every experience entry (see `ai_tailor._assemble_full_resume` — the master
+CV's title takes priority over anything the AI suggests). The AI may still
+propose a JD-aligned title in its structured output, but it is only ever
+used as a fallback when the master CV's own title couldn't be parsed at all.
+
+# Experience Bullets (JD-driven, not CV-restricted)
+
+Every company entry must have exactly `EXPERIENCE_BULLET_COUNT` (8, see
+`app/core/constants.py`) bullets. Bullets are generated to best match the
+target job description's required/preferred skills and responsibilities —
+**not** limited to, or lightly reworded from, that specific job's own
+original CV bullets/duties. Vary bullets across jobs (no repeats); keep them
+plausible for each job's title/seniority/era. Each bullet: starts with a
+strong action verb, includes the technical implementation, the impact, and a
+measurable number whenever possible. Preferred shape: `Action + Technology +
+Impact + Number`. Every selectable template
+(`app/templates/resumes/<slug>/template.html.jinja2`) simply loops over
+however many bullets it's given, so this count only needs to be enforced
+once, in `ai_tailor._assemble_full_resume`. Any shortfall from the model is
+padded from other jobs' JD-driven bullets first, then deterministic
+JD-derived filler (`ai_tailor._generic_jd_bullets`) — never from the
+candidate's real original bullets, since bullets are no longer meant to
+reflect that job's real duties.
+
+# Professional Summary & Skills (JD-driven, not CV-restricted)
+
+Summary: target the JD, state years of experience, strongest required and
+preferred technologies, and a measurable impact — fresh prose, never a
+keyword dump.
+
+Skills: the AI builds the full Skills section itself (`TailoredDynamicContent.skills`
+in the structured path), covering every JD required + preferred skill plus
+any other skill genuinely relevant to the role — **not** limited to skills
+already on the candidate's CV. Dedupe, reorder by JD relevance (required
+first), and group into categories: Languages, Backend, Frontend, Cloud,
+DevOps, Databases, AI, Tools.
+`app/services/resume_validator.normalize_ai_skills` runs after generation as
+a no-AI cleanup pass (dedupe + consistent casing only — it never removes or
+restricts skills), and `close_ats_gaps` may additively top up any
+still-missing JD-matched/transferable CV skill.
+
+# ATS Optimization
+
+Naturally weave in JD keywords — never keyword-stuff. Every skill placed in
+Skills should also be echoed at least once in the summary or a bullet,
+ideally using the JD's own wording, since ATS scanners match literal text.
+
+# Output Quality Checklist
+
+Every generated resume must: preserve company names, employment dates,
+education, and certifications from the master CV; use the master CV's job
+titles; have exactly 8 JD-driven bullets per company; contain measurable
+achievements; and maximize ATS compatibility via a JD-driven Skills section
+and summary.

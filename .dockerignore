@@ -1,0 +1,15 @@
+.git
+.cursor
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.local
+frontend/node_modules
+frontend/dist
+backend/temp
+backend/data/*.db
+backend/static/template_previews
+docs
+*.md
+!README.md

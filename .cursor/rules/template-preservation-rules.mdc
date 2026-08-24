@@ -1,0 +1,64 @@
+---
+description: Resume template library + rendering architecture and rules
+globs: backend/app/services/template_renderer.py,backend/app/services/template_registry.py,backend/app/templates/resumes/**,backend/app/db/models.py,backend/app/api/routes/resume.py
+alwaysApply: false
+---
+
+# Template Library Architecture
+
+The uploaded master CV is a **content source only** — its own visual layout
+is never preserved or edited. Instead, the app ships a small, fixed library
+of hand-built HTML/CSS resume templates that the user picks from in the
+frontend gallery (`TemplateGallery.tsx`). This is implemented as:
+
+1. `app/services/cv_structurer.py` (+ `docx_segmenter.py`) — parses the
+   master CV's *content* (contact, summary, skills, per-job title/company/
+   dates/bullets, education) into `MasterCvData`. Layout/formatting of the
+   original document is irrelevant past this step.
+2. `app/db/models.py`'s `ResumeTemplate` — one row per selectable template,
+   seeded from `app/templates/resumes/<slug>/` folders by
+   `app/services/template_registry.seed_templates_from_disk` on startup.
+   Each folder holds `template.html.jinja2` (the layout) and `reference.pdf`
+   (the original sample CV the design is modeled on — its first page is
+   rasterized via PyMuPDF into the gallery thumbnail, so the picker shows
+   the real sample, never a synthetic re-render).
+3. `app/services/template_renderer.py` — fills the selected template's
+   Jinja2 file with the AI-tailored `TailoredResumeContent`, then renders
+   that HTML to PDF via a warm, shared Playwright Chromium instance
+   (started/stopped in `app/main.py`'s lifespan).
+4. DOCX output is derived from the *rendered PDF*, not a second hand-built
+   renderer: `app/services/docx_to_pdf.convert_to_docx` (Word COM) opens the
+   PDF and `SaveAs2`s it as `.docx` — the same conversion helper already
+   used elsewhere in this file, reused as-is.
+
+# Adding or editing a template
+
+Every template folder needs exactly `template.html.jinja2` + `reference.pdf`.
+The Jinja2 file receives one variable, `resume` (a `TailoredResumeContent` —
+see `app/models/schemas.py`), and must render every field-bearing section
+(contact, summary, skills, experience, education, certifications, languages)
+so no tailored content is silently dropped for any real resume. Register the
+new slug's display name/description in
+`template_registry.py`'s `_TEMPLATE_META` dict. Never invent a 6th
+"default" template outside the 5 seeded from the attached sample CVs
+without an explicit request.
+
+# The fixed bullet count exception
+
+Every experience entry must end up with exactly `EXPERIENCE_BULLET_COUNT`
+(see `app/core/constants.py`) bullets, fully regenerated to target the JD —
+**not** matched to the master CV's own original per-job bullet count. Every
+template's experience section must render however many bullets
+`ExperienceEntry.bullets` actually contains (a plain `{% for %}` loop) —
+never hardcode a bullet count or truncate/pad in the template itself; that
+padding/trimming already happened in `ai_tailor._assemble_full_resume`
+before the resume ever reaches the renderer.
+
+# Rendering failure handling
+
+`template_renderer.render_pdf` returns `None` (never raises) if the shared
+Chromium instance isn't running (e.g. `playwright install chromium` was
+never run) — `download_resume` in `backend/app/api/routes/resume.py` turns
+that into a clear 500 error rather than a silent blank download. DOCX
+conversion failures (Word COM unavailable) are surfaced the same way, only
+when `format=docx` was actually requested.

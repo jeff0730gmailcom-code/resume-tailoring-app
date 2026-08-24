@@ -1,0 +1,24 @@
+---
+description: General engineering and code standards for the Resume Tailor AI app
+alwaysApply: true
+---
+
+# General Rules
+
+- Never break existing functionality.
+- Write clean, production-ready code.
+- Prefer reusable services over duplicated logic.
+- Keep the project modular; keep frontend and backend responsibilities separate.
+- Follow FastAPI best practices in `backend/`.
+
+# AI/Prompt Code Rules
+
+- Never hardcode prompts inline in service/route code. Keep all prompt text in
+  `backend/app/prompts/` and import it from there.
+- Keep AI-calling logic in `backend/app/services/` (e.g. `ai_tailor.py`), never
+  inside `backend/app/api/routes/`. Routes only orchestrate services.
+- Load all secrets (e.g. `OPENAI_API_KEY`) via `backend/app/core/config.py`
+  (env vars). Never hardcode or log API keys.
+- When a prompt needs to change, edit the dedicated prompt file — do not
+  duplicate prompt text across multiple places.
+- Write scalable, production-quality code; avoid one-off scripts in `app/`.

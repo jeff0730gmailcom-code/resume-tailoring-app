@@ -1,0 +1,87 @@
+/**
+ * Shared frontend types for the resume tailoring flow, mirroring the
+ * backend Pydantic schemas in backend/app/models/schemas.py.
+ */
+
+export type FlowStep = "idle" | "uploading" | "ready" | "generating" | "preview";
+
+export interface UploadedCv {
+  fileId: string;
+  fileName: string;
+  cvTextPreview: string;
+}
+
+export interface ResumeTemplateInfo {
+  slug: string;
+  name: string;
+  description: string;
+  /** Path under the backend's /static mount - prefix with the API base URL to load. */
+  thumbnailUrl: string;
+}
+
+export interface ContactInfo {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  location?: string | null;
+  linkedin?: string | null;
+}
+
+export interface ExperienceEntry {
+  title: string;
+  company: string;
+  dates: string;
+  bullets: string[];
+}
+
+export interface EducationEntry {
+  degree: string;
+  institution: string;
+  dates: string;
+}
+
+export interface SkillCategories {
+  languages: string[];
+  backend: string[];
+  frontend: string[];
+  cloud: string[];
+  devops: string[];
+  databases: string[];
+  ai: string[];
+  tools: string[];
+}
+
+export const SKILL_CATEGORY_LABELS: Record<keyof SkillCategories, string> = {
+  languages: "Languages",
+  backend: "Backend",
+  frontend: "Frontend",
+  cloud: "Cloud",
+  devops: "DevOps",
+  databases: "Databases",
+  ai: "AI",
+  tools: "Tools",
+};
+
+export interface TailoredResumeContent {
+  contact: ContactInfo;
+  summary: string;
+  skills: SkillCategories;
+  experience: ExperienceEntry[];
+  education: EducationEntry[];
+  languages: string[];
+  certifications: string[];
+}
+
+export interface AtsMatchInfo {
+  score: number;
+  matchedKeywords: string[];
+  missingKeywords: string[];
+}
+
+export interface TailorResult {
+  resume: TailoredResumeContent;
+  atsMatch: AtsMatchInfo;
+  /** Deterministic base filename (no extension), e.g. "Mateo_Baranji_Node.js_Sequencer" - see backend/app/services/filename_generator.py. */
+  generatedFilename: string;
+  templateSlug: string;
+}

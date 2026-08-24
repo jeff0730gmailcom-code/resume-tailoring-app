@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{ resume.contact.name }}</title>
+<style>
+  /* Page margins live here, not in body padding: a body's own padding is
+     only ever applied ONCE around the whole (possibly multi-page) flow,
+     so every internal page break would otherwise render with ZERO top
+     spacing - a heading landing right after a break would sit flush
+     against the physical page edge. @page repeats on every page instead.
+     Page 1 keeps a normal top margin; every later page (where a section/
+     job spilling over is most likely to land right at the top) gets a
+     noticeably bigger one so it never looks cramped. */
+  @page { margin: 90px 50px 40px 50px; }
+  @page :first { margin-top: 40px; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    color: #1a1a1a;
+    font-size: 10.5pt;
+    line-height: 1.45;
+  }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+  h1.name { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 26pt; font-weight: 700; line-height: 1.1; }
+  .contact-block { text-align: right; font-size: 9.5pt; color: #333; padding-top: 6px; }
+  .contact-block p { margin: 2px 0; }
+  .contact-block .dot { color: #2f6fa8; margin-right: 4px; }
+  hr.rule { border: none; border-top: 1px solid #ccc; margin: 4px 0 14px; }
+  h2.section { margin: 16px 0 4px; font-family: Georgia, "Times New Roman", serif; font-size: 13pt; font-weight: 700; }
+  p.summary { margin: 0; color: #333; }
+  p.skills-line { margin: 0; color: #333; }
+  .job { margin-bottom: 14px; }
+  .job:last-child { margin-bottom: 0; }
+  .job-dates { font-size: 9pt; color: #999; margin: 0 0 1px; }
+  .job-title-line { margin: 0 0 3px; font-weight: 700; color: #2f6fa8; }
+  .job-title-line .company { font-weight: 400; color: #666; }
+  ul.bullets { margin: 3px 0 0; padding-left: 18px; }
+  ul.bullets li { margin: 3px 0; color: #333; }
+  .edu-row { display: flex; justify-content: space-between; gap: 12px; margin: 2px 0; }
+  .edu-dates { font-size: 9pt; color: #999; white-space: nowrap; }
+  ul.plain { margin: 4px 0 0; padding-left: 18px; }
+  ul.plain li { margin: 2px 0; color: #333; }
+  strong { font-weight: 700; color: #1a1a1a; }
+  /* Page-break hygiene. Deliberately NOT "break-inside: avoid" on the
+     whole .job block - forcing an entire multi-bullet job to move as one
+     unit means the ENTIRE job jumps to the next page the instant it
+     doesn't fully fit in whatever space is left, wasting that leftover
+     space as a large blank gap. Letting a job's bullet list split
+     naturally (like a normal paragraph/list) fills the page properly;
+     only the job's header is kept glued to its first bullet (never
+     stranded alone with nothing under it), and a single bullet's own
+     text is never split mid-sentence. */
+  h2.section { break-after: avoid; page-break-after: avoid; }
+  .job-title-line { break-after: avoid; page-break-after: avoid; }
+  ul.bullets li, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
+  p, li { orphans: 3; widows: 3; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1 class="name">{{ resume.contact.name }}</h1>
+    <div class="contact-block">
+      {% if resume.contact.location %}<p><span class="dot">&#9679;</span>{{ resume.contact.location }}</p>{% endif %}
+      {% if resume.contact.email %}<p><span class="dot">&#9993;</span>{{ resume.contact.email }}</p>{% endif %}
+      {% if resume.contact.phone %}<p><span class="dot">&#9742;</span>{{ resume.contact.phone }}</p>{% endif %}
+      {% if resume.contact.linkedin %}<p><span class="dot">&#128279;</span>{{ resume.contact.linkedin }}</p>{% endif %}
+    </div>
+  </div>
+
+  {% if resume.summary %}
+  <p class="summary">{{ resume.summary }}</p>
+  {% endif %}
+  <hr class="rule" />
+
+  {% if resume.experience %}
+  <h2 class="section">Experience</h2>
+  {% for job in resume.experience %}
+  <div class="job">
+    <p class="job-dates">{{ job.dates }}</p>
+    <p class="job-title-line">{{ job.title }} <span class="company">/ {{ job.company }}</span></p>
+    <ul class="bullets">
+      {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% set all_skills = resume.skills.languages + resume.skills.backend + resume.skills.frontend + resume.skills.cloud + resume.skills.devops + resume.skills.databases + resume.skills.ai + resume.skills.tools %}
+  {% if all_skills %}
+  <h2 class="section">Skills</h2>
+  <p class="skills-line">{{ all_skills | join(", ") }}</p>
+  {% endif %}
+
+  {% if resume.education %}
+  <h2 class="section">Education</h2>
+  {% for edu in resume.education %}
+  <div class="edu-row">
+    <span>{{ edu.degree }}{% if edu.institution %} &mdash; {{ edu.institution }}{% endif %}</span>
+    <span class="edu-dates">{{ edu.dates }}</span>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if resume.certifications %}
+  <h2 class="section">Certifications</h2>
+  <ul class="plain">{% for line in resume.certifications %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if resume.languages %}
+  <h2 class="section">Languages</h2>
+  <ul class="plain">{% for line in resume.languages %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% endif %}
+</body>
+</html>

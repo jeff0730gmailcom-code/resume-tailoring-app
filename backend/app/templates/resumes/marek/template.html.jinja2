@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{ resume.contact.name }}</title>
+<style>
+  /* Page margins live here, not in body padding: a body's own padding is
+     only ever applied ONCE around the whole (possibly multi-page) flow,
+     so every internal page break would otherwise render with ZERO top
+     spacing - a heading landing right after a break would sit flush
+     against the physical page edge. @page repeats on every page instead.
+     Page 1 keeps a normal top margin; every later page (where a section/
+     job spilling over is most likely to land right at the top) gets a
+     noticeably bigger one so it never looks cramped. */
+  @page { margin: 90px 50px 40px 50px; }
+  @page :first { margin-top: 40px; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: Georgia, "Times New Roman", serif;
+    color: #1a1a1a;
+    font-size: 10.5pt;
+    line-height: 1.45;
+  }
+  /* Titles (section headings, education line, job title line) are sans-serif
+     like the Marek sample CV - body copy stays Georgia/Times. Chromium's
+     PDF engine will otherwise inherit the body serif onto every heading
+     and the result no longer matches the sample. */
+  h1.name { margin: 0 0 6px; font-size: 22pt; font-weight: 700; }
+  hr.rule { border: none; border-top: 1.5px solid #1a1a1a; margin: 0 0 8px; }
+  p.contact { margin: 0 0 16px; font-size: 9.5pt; color: #333; }
+  p.contact span:not(:last-child)::after { content: " | "; color: #888; }
+  h2.section {
+    margin: 16px 0 6px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12pt;
+    font-weight: 700;
+  }
+  p.summary { margin: 0; color: #222; }
+  .edu-block { margin: 0 0 4px; }
+  .edu-header {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 10pt;
+  }
+  ul.plain { margin: 4px 0 0; padding-left: 20px; list-style-type: disc; }
+  ul.plain li { margin: 2px 0; }
+  p.skills-line { margin: 0; color: #222; }
+  .job { margin-bottom: 12px; }
+  .job:last-child { margin-bottom: 0; }
+  /* Table, not flex: Chromium's print engine can collapse a flex
+     .job-header + the first <li> onto one line (title | company | □ first
+     bullet ... dates), which is what the broken Classic Serif preview
+     showed. A 2-cell table keeps title/company left, dates right, and
+     the bullet list on the next line. */
+  table.job-header {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: Arial, Helvetica, sans-serif;
+    font-weight: 700;
+    font-size: 10.5pt;
+  }
+  table.job-header td { padding: 0; vertical-align: baseline; }
+  table.job-header .dates { text-align: right; white-space: nowrap; font-style: italic; font-weight: 400; }
+  ul.bullets {
+    display: block;
+    margin: 4px 0 0;
+    padding-left: 20px;
+    list-style-type: disc;
+  }
+  ul.bullets li { margin: 3px 0; color: #222; }
+  strong { font-weight: 700; }
+  /* Page-break hygiene. Deliberately NOT "break-inside: avoid" on the
+     whole .job block - forcing an entire multi-bullet job to move as one
+     unit means the ENTIRE job jumps to the next page the instant it
+     doesn't fully fit in whatever space is left, wasting that leftover
+     space as a large blank gap. Letting a job's bullet list split
+     naturally (like a normal paragraph/list) fills the page properly;
+     only the job's header is kept glued to its first bullet (never
+     stranded alone with nothing under it), and a single bullet's own
+     text is never split mid-sentence. */
+  h2.section { break-after: avoid; page-break-after: avoid; }
+  .job-header { break-after: avoid; page-break-after: avoid; }
+  ul.bullets li, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
+  p, li { orphans: 3; widows: 3; }
+</style>
+</head>
+<body>
+  <h1 class="name">{{ resume.contact.name }}</h1>
+  <hr class="rule" />
+  <p class="contact">
+    {% if resume.contact.location %}<span>{{ resume.contact.location }}</span>{% endif %}
+    {% if resume.contact.email %}<span>{{ resume.contact.email }}</span>{% endif %}
+    {% if resume.contact.phone %}<span>{{ resume.contact.phone }}</span>{% endif %}
+    {% if resume.contact.linkedin %}<span>{{ resume.contact.linkedin }}</span>{% endif %}
+  </p>
+
+  {% if resume.summary %}
+  <h2 class="section">Summary</h2>
+  <p class="summary">{{ resume.summary }}</p>
+  {% endif %}
+
+  {% if resume.education %}
+  <h2 class="section">Education</h2>
+  {% for edu in resume.education %}
+  <div class="edu-block">
+    <p class="edu-header">{{ edu.degree }}{% if edu.dates %} | {{ edu.dates }}{% endif %}{% if edu.institution %} | {{ edu.institution | upper }}{% endif %}</p>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% set all_skills = resume.skills.languages + resume.skills.backend + resume.skills.frontend + resume.skills.cloud + resume.skills.devops + resume.skills.databases + resume.skills.ai + resume.skills.tools %}
+  {% if all_skills %}
+  <h2 class="section">Skills &amp; Abilities</h2>
+  <p class="skills-line">{{ all_skills | join(", ") }}</p>
+  {% endif %}
+
+  {% if resume.experience %}
+  <h2 class="section">Experience</h2>
+  {% for job in resume.experience %}
+  <div class="job">
+    <table class="job-header">
+      <tr>
+        <td>{{ job.title }} | {{ job.company }}</td>
+        <td class="dates">{{ job.dates }}</td>
+      </tr>
+    </table>
+    <ul class="bullets">
+      {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if resume.certifications %}
+  <h2 class="section">Certifications</h2>
+  <ul class="plain">{% for line in resume.certifications %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if resume.languages %}
+  <h2 class="section">Languages</h2>
+  <ul class="plain">{% for line in resume.languages %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% endif %}
+</body>
+</html>
