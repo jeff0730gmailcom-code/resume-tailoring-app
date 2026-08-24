@@ -9,6 +9,8 @@ from docx import Document
 from docx.document import Document as DocumentObject
 from pypdf import PdfReader
 
+from app.services.text_sanitize import strip_broken_characters
+
 
 class CvParsingError(Exception):
     """Raised when a CV file cannot be parsed into text."""
@@ -34,7 +36,7 @@ def extract_text_from_cv(file_path: Path, document: DocumentObject | None = None
     else:
         raise CvParsingError(f"Unsupported file type: {suffix}")
 
-    text = text.strip()
+    text = strip_broken_characters(text.strip())
     if not text:
         raise CvParsingError(
             "No text could be extracted from this file. If it's a scanned "

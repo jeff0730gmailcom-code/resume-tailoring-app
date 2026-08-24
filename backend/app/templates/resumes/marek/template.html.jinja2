@@ -51,13 +51,14 @@
     font-size: 10pt;
     color: #555;
   }
-  ul.plain { margin: 4px 0 0; padding-left: 20px; list-style-type: disc; }
+  ul.plain { margin: 4px 0 0; padding-left: 16px; list-style: none; }
+  ul.plain li::before { content: "• "; font-family: Arial, Helvetica, sans-serif; }
   ul.plain li { margin: 2px 0; }
   p.skills-line { margin: 0; color: #222; }
   .job { margin-bottom: 12px; }
   .job:last-child { margin-bottom: 0; }
   /* Table, not flex: Chromium's print engine can collapse a flex
-     .job-header + the first <li> onto one line (title | company | □ first
+     .job-header + the first <li> onto one line (title | company | first
      bullet ... dates), which is what the broken Classic Serif preview
      showed. A 2-cell table keeps title/company left, dates right, and
      the bullet list on the next line. */
@@ -70,13 +71,7 @@
   table.job-header td { padding: 0; vertical-align: baseline; }
   table.job-header .title { font-weight: 700; }
   table.job-header .dates { text-align: right; white-space: nowrap; font-style: italic; font-weight: 400; }
-  ul.bullets {
-    display: block;
-    margin: 4px 0 0;
-    padding-left: 20px;
-    list-style-type: disc;
-  }
-  ul.bullets li { margin: 3px 0; color: #222; }
+{% include "_job_duties.css.jinja2" %}
   strong { font-weight: 700; }
   /* Page-break hygiene. Deliberately NOT "break-inside: avoid" on the
      whole .job block - forcing an entire multi-bullet job to move as one
@@ -89,7 +84,7 @@
      text is never split mid-sentence. */
   h2.section { break-after: avoid; page-break-after: avoid; }
   .job-header { break-after: avoid; page-break-after: avoid; }
-  ul.bullets li, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
+  p.job-duty, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
   p, li { orphans: 3; widows: 3; }
 </style>
 </head>
@@ -136,9 +131,7 @@
         <td class="dates">{{ job.dates }}</td>
       </tr>
     </table>
-    <ul class="bullets">
-      {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}
-    </ul>
+    {% include "_job_duties.html.jinja2" %}
   </div>
   {% endfor %}
   {% endif %}

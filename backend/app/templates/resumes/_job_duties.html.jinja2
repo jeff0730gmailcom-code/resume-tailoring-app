@@ -1,0 +1,9 @@
+{# Job description bullets. Must stay a block after the title — never a
+   <ul>/<li> (Chromium print collapses the first item onto the title). #}
+{% if job.bullets %}
+<div class="job-duties">
+  {% for bullet in job.bullets %}
+  <p class="job-duty"><span class="duty-mark">&#8226;</span>{{ bullet }}</p>
+  {% endfor %}
+</div>
+{% endif %}

@@ -55,13 +55,13 @@
   p.skills-line { margin: 0; color: #444; }
   .job { margin-bottom: 14px; }
   .job:last-child { margin-bottom: 0; }
-  .job-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  table.job-header { width: 100%; border-collapse: collapse; }
+  table.job-header td { padding: 0; vertical-align: baseline; }
   .job-title-company { font-weight: 700; color: #262626; }
   .job-title-company .sep { font-weight: 400; font-style: italic; color: #8a8a8a; }
-  .job-dates { font-size: 9pt; color: #8a8a8a; white-space: nowrap; }
-  ul.bullets { margin: 4px 0 0; padding-left: 18px; }
-  ul.bullets li { margin: 3px 0; color: #444; }
-  ul.bullets li::marker { color: #3a9d51; }
+  .job-dates { font-size: 9pt; color: #8a8a8a; white-space: nowrap; text-align: right; }
+{% include "_job_duties.css.jinja2" %}
+  p.job-duty .duty-mark { color: #3a9d51; }
   .edu-row, .cert-row { display: flex; justify-content: space-between; gap: 12px; margin: 2px 0; }
   .edu-degree { font-weight: 700; }
   .edu-dates { font-size: 9pt; color: #8a8a8a; white-space: nowrap; }
@@ -78,7 +78,7 @@
      text is never split mid-sentence. */
   h2.section { break-after: avoid; page-break-after: avoid; }
   .job-header { break-after: avoid; page-break-after: avoid; }
-  ul.bullets li, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
+  p.job-duty, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
   p, li { orphans: 3; widows: 3; }
 </style>
 </head>
@@ -111,13 +111,13 @@
   <h2 class="section">Experience</h2>
   {% for job in resume.experience %}
   <div class="job">
-    <div class="job-header">
-      <span class="job-title-company">{{ job.company }}<span class="sep"> &mdash; {{ job.title }}</span></span>
-      <span class="job-dates">{{ job.dates }}</span>
-    </div>
-    <ul class="bullets">
-      {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}
-    </ul>
+    <table class="job-header">
+      <tr>
+        <td class="job-title-company">{{ job.company }}<span class="sep"> &mdash; {{ job.title }}</span></td>
+        <td class="job-dates">{{ job.dates }}</td>
+      </tr>
+    </table>
+    {% include "_job_duties.html.jinja2" %}
   </div>
   {% endfor %}
   {% endif %}

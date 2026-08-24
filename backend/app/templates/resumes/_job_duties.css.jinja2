@@ -1,0 +1,26 @@
+  /* PDF-safe job duties. Chromium page.pdf() glues the first <li> onto the
+     title line and substitutes a missing list-disc glyph with a broken
+     square. Duties are block <p>s with an Arial bullet in the HTML, so
+     they always start on the line after the title. */
+  .job-duties {
+    display: block;
+    margin: 4px 0 0;
+    padding: 0;
+    clear: both;
+    overflow: hidden;
+  }
+  p.job-duty {
+    display: block;
+    margin: 3px 0;
+    padding: 0 0 0 16px;
+    text-indent: -16px;
+    font-weight: 400;
+    color: #333;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  p.job-duty .duty-mark {
+    font-family: Arial, Helvetica, sans-serif;
+    font-weight: 400;
+    padding-right: 6px;
+  }

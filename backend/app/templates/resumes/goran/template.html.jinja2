@@ -50,13 +50,7 @@
   table.job-meta td { padding: 0; vertical-align: baseline; }
   table.job-meta .title { font-weight: 700; font-size: 11pt; color: #1a1a1a; }
   table.job-meta .dates { text-align: right; white-space: nowrap; font-size: 10pt; color: #666; }
-  ul.bullets {
-    display: block;
-    margin: 4px 0 0;
-    padding-left: 18px;
-    list-style-type: disc;
-  }
-  ul.bullets li { margin: 3px 0; color: #333; }
+{% include "_job_duties.css.jinja2" %}
   .edu-block { margin: 0 0 8px; }
   p.edu-degree { margin: 0; font-weight: 700; font-size: 10.5pt; color: #1a1a1a; }
   p.edu-school { margin: 1px 0 0; color: #444; }
@@ -75,7 +69,7 @@
   ul.plain li { margin: 2px 0; color: #333; }
   h2.section { break-after: avoid; page-break-after: avoid; }
   p.job-title, table.job-meta { break-after: avoid; page-break-after: avoid; }
-  ul.bullets li, ul.plain li, .skill-group li { break-inside: avoid; page-break-inside: avoid; }
+  p.job-duty, ul.plain li, .skill-group li { break-inside: avoid; page-break-inside: avoid; }
   p, li { orphans: 3; widows: 3; }
 </style>
 </head>
@@ -104,9 +98,7 @@
         <td class="dates">{{ job.dates }}</td>
       </tr>
     </table>
-    <ul class="bullets">
-      {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}
-    </ul>
+    {% include "_job_duties.html.jinja2" %}
   </div>
   {% endfor %}
   {% endif %}

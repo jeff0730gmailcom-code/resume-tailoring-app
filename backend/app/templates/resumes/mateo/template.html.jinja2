@@ -38,13 +38,7 @@
   .job-title-line { width: 100%; border-collapse: collapse; margin: 0 0 3px; font-weight: 700; color: #2f6fa8; }
   .job-title-line td { padding: 0; }
   .job-title-line .company { font-weight: 400; color: #666; }
-  ul.bullets {
-    display: block;
-    margin: 3px 0 0;
-    padding-left: 18px;
-    list-style-type: disc;
-  }
-  ul.bullets li { margin: 3px 0; color: #333; }
+{% include "_job_duties.css.jinja2" %}
   .edu-row { display: flex; justify-content: space-between; gap: 12px; margin: 2px 0; }
   .edu-dates { font-size: 9pt; color: #999; white-space: nowrap; }
   ul.plain { margin: 4px 0 0; padding-left: 18px; }
@@ -61,7 +55,7 @@
      text is never split mid-sentence. */
   h2.section { break-after: avoid; page-break-after: avoid; }
   .job-title-line { break-after: avoid; page-break-after: avoid; }
-  ul.bullets li, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
+  p.job-duty, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
   p, li { orphans: 3; widows: 3; }
 </style>
 </head>
@@ -91,9 +85,7 @@
         <td>{{ job.title }}{% if job.company %} <span class="company">/ {{ job.company }}</span>{% endif %}</td>
       </tr>
     </table>
-    <ul class="bullets">
-      {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}
-    </ul>
+    {% include "_job_duties.html.jinja2" %}
   </div>
   {% endfor %}
   {% endif %}

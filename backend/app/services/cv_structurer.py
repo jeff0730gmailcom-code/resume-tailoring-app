@@ -44,6 +44,7 @@ from app.services.docx_segmenter import (
     iter_all_paragraphs,
     segment_document,
 )
+from app.services.text_sanitize import strip_broken_characters, strip_broken_from_tree
 
 _SEPARATOR_RE = re.compile(r"\s*[-|–—@]\s*|\s*,\s*")
 _LABEL_PREFIX_RE = re.compile(r"^[A-Za-z][A-Za-z /&]{1,30}:\s*")
@@ -157,14 +158,14 @@ def structure_cv(file_path: Path, cv_text: str, document: DocumentObject | None 
 
     cv_text is always stored on the result (as raw_text) regardless of
     whether structuring succeeds, so callers always have a safe fallback."""
+    cv_text = strip_broken_characters(cv_text or "")
     if file_path.suffix.lower() == ".docx":
         try:
             structured = _structure_docx(file_path, document)
         except Exception:  # noqa: BLE001 - structuring is best-effort, never fatal
             structured = None
         if structured is not None:
-            structured.raw_text = cv_text
-            return structured
+            return _finalize_master_cv(structured, cv_text)
 
     # Plain-text line-level structuring - the primary path for PDFs (no
     # paragraph/style structure survives PDF text extraction) and a safety
@@ -174,10 +175,19 @@ def structure_cv(file_path: Path, cv_text: str, document: DocumentObject | None 
     except Exception:  # noqa: BLE001 - structuring is best-effort, never fatal
         structured = None
     if structured is not None:
-        structured.raw_text = cv_text
-        return structured
+        return _finalize_master_cv(structured, cv_text)
 
-    return MasterCvData(contact=ContactInfo(name="Unknown"), is_structured=False, raw_text=cv_text)
+    return _finalize_master_cv(
+        MasterCvData(contact=ContactInfo(name="Unknown"), is_structured=False, raw_text=cv_text),
+        cv_text,
+    )
+
+
+def _finalize_master_cv(structured: MasterCvData, cv_text: str) -> MasterCvData:
+    """Strip extraction tofu from every field, then attach cleaned raw_text."""
+    data = strip_broken_from_tree(structured.model_dump())
+    data["raw_text"] = cv_text
+    return MasterCvData.model_validate(data)
 
 
 def _structure_docx(file_path: Path, document: DocumentObject | None) -> MasterCvData | None:
@@ -199,7 +209,8 @@ def _structure_docx(file_path: Path, document: DocumentObject | None) -> MasterC
             for p in segments.jobs[i].header_paragraphs
             if p.text.strip()
         ]
-        entry.company = header_bits[1] if len(header_bits) > 1 else (header_bits[0] if header_bits else "Unknown")
+        fallback = header_bits[1] if len(header_bits) > 1 else (header_bits[0] if header_bits else "")
+        entry.company = clip_job_company(_clean_extracted_text(fallback), entry.title)
 
     return MasterCvData(
         contact=_extract_contact(doc),
@@ -215,11 +226,13 @@ def _structure_docx(file_path: Path, document: DocumentObject | None) -> MasterC
 
 def _parse_job_segment(job: JobSegment) -> CvExperienceEntry:
     title, company, dates = _parse_job_header([p.text for p in job.header_paragraphs])
-    bullets = [p.text.strip() for p in job.bullet_paragraphs if p.text.strip()]
+    bullets = [_clean_extracted_text(p.text) for p in job.bullet_paragraphs]
+    bullets = [bullet for bullet in bullets if bullet]
+    clipped_title = clip_job_title(title)
     return CvExperienceEntry(
-        title=clip_job_title(title),
-        company=_clean_extracted_text(company),
-        dates=dates,
+        title=clipped_title,
+        company=clip_job_company(_clean_extracted_text(company), clipped_title),
+        dates=_clean_extracted_text(dates),
         bullets=bullets,
     )
 
@@ -431,9 +444,9 @@ def _extract_skills_raw(skills_lines: list[str]) -> list[str]:
     unlabeled one-skill-per-paragraph layout must stay one token per line."""
     tokens: list[str] = []
     for line in skills_lines:
-        text = _LABEL_PREFIX_RE.sub("", line.strip())
+        text = _LABEL_PREFIX_RE.sub("", strip_broken_characters(line))
         for piece in _SKILL_SPLIT_RE.split(text):
-            piece = piece.strip(" .")
+            piece = strip_broken_characters(piece.strip(" ."))
             if piece and len(piece) < 40:
                 tokens.append(piece)
 
@@ -452,7 +465,8 @@ def _extract_raw_lines(lines: list[str]) -> list[str]:
     reworded (Languages, Certifications) - no parsing/splitting, unlike
     _extract_education, since these preserve exactly what the AI never
     sees and the backend splices straight through unchanged."""
-    return [line.strip() for line in lines if line and line.strip()]
+    cleaned = [_clean_extracted_text(line) for line in lines]
+    return [line for line in cleaned if line]
 
 
 def _extract_education(education_lines: list[str]) -> list[EducationEntry]:
@@ -519,34 +533,56 @@ def _clean_extracted_text(text: str) -> str:
     """Strip PDF-extraction junk (replacement chars, bullet glyphs, a
     leading 'Major:' label) so templates never render a broken square or
     a packed 'Major: … | DEGREE | SCHOOL' line."""
-    cleaned = text.replace("\ufffd", "").replace("\ufeff", "")
+    cleaned = strip_broken_characters(text)
     cleaned = _JUNK_PREFIX_RE.sub("", cleaned)
     cleaned = _MAJOR_PREFIX_RE.sub("", cleaned)
-    return cleaned.strip(" |,-–—")
+    return strip_broken_characters(cleaned.strip(" |,-–—"))
 
 
-_ACTION_VERB_RE = re.compile(
-    r"\s+(?=(?:Designed|Architected|Developed|Built|Implemented|Led|Created|"
-    r"Owned|Managed|Improved|Optimized|Engineered|Delivered|Launched|"
-    r"Established|Introduced|Drove|Spearheaded|Conducted|Collaborated)\b)",
-    re.IGNORECASE,
+_ACTION_VERBS = (
+    "Designed|Architected|Developed|Built|Implemented|Led|Created|"
+    "Owned|Managed|Improved|Optimized|Engineered|Delivered|Launched|"
+    "Established|Introduced|Drove|Spearheaded|Conducted|Collaborated"
 )
+_ACTION_VERB_RE = re.compile(rf"\s+(?=(?:{_ACTION_VERBS})\b)", re.IGNORECASE)
+_DUTY_START_RE = re.compile(rf"^(?:{_ACTION_VERBS})\b", re.IGNORECASE)
 
 
 def clip_job_title(title: str, max_len: int = 80) -> str:
     """Keep only the job title itself — never a duty/description sentence
     that PDF extraction glued onto the same header line. Templates render
     duties as bullets after the title, not as title text."""
+    title = strip_broken_characters(title)
     title = " ".join(title.replace("\n", " ").split())
     title = _JUNK_PREFIX_RE.sub("", title)
     title = _ACTION_VERB_RE.split(title, maxsplit=1)[0].strip(" |/-–—,")
+    if _DUTY_START_RE.match(title):
+        return ""
     if " | " in title:
         left, right = title.split(" | ", 1)
         if len(right) > 40 or (right[:1].islower() if right else False):
             title = left.strip()
     if len(title) > max_len:
         title = title[:max_len].rsplit(" ", 1)[0].strip(" |/-–—,")
-    return title
+    return strip_broken_characters(title)
+
+
+def clip_job_company(company: str, title: str = "", max_len: int = 60) -> str:
+    """Keep a short employer name. Drop glued duty sentences and names
+    already shown in the title (e.g. 'Senior Engineer | Netguru')."""
+    company = strip_broken_characters(company)
+    company = " ".join(company.replace("\n", " ").split())
+    company = _JUNK_PREFIX_RE.sub("", company)
+    if not company:
+        return ""
+    if _DUTY_START_RE.match(company):
+        return ""
+    company = _ACTION_VERB_RE.split(company, maxsplit=1)[0].strip(" |/-–—,")
+    if _DUTY_START_RE.match(company) or len(company) > max_len:
+        return ""
+    if title and company.lower() in title.lower():
+        return ""
+    return strip_broken_characters(company)
 
 
 def _looks_like_job_boundary(line: str) -> bool:
@@ -689,12 +725,14 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
         header_lines, bullet_lines = _split_job_header_and_bullets(job_lines)
         job_header_lines.append(header_lines)
         title, company, dates = _parse_job_header(header_lines)
-        bullets = _merge_wrapped_bullets(bullet_lines)
+        bullets = [_clean_extracted_text(bullet) for bullet in _merge_wrapped_bullets(bullet_lines)]
+        bullets = [bullet for bullet in bullets if bullet]
+        clipped_title = clip_job_title(title)
         experience.append(
             CvExperienceEntry(
-                title=clip_job_title(title),
-                company=_clean_extracted_text(company),
-                dates=dates,
+                title=clipped_title,
+                company=clip_job_company(_clean_extracted_text(company), clipped_title),
+                dates=_clean_extracted_text(dates),
                 bullets=bullets,
             )
         )
@@ -706,7 +744,8 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
         if entry.company.strip():
             continue
         header_bits = job_header_lines[i]
-        entry.company = header_bits[1] if len(header_bits) > 1 else (header_bits[0] if header_bits else "Unknown")
+        fallback = header_bits[1] if len(header_bits) > 1 else (header_bits[0] if header_bits else "")
+        entry.company = clip_job_company(_clean_extracted_text(fallback), entry.title)
 
     return MasterCvData(
         contact=_extract_contact_from_lines(preamble),

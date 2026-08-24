@@ -37,12 +37,12 @@
   .edu-degree { margin: 2px 0 0; font-weight: 700; }
   .job { margin-bottom: 12px; }
   .job:last-child { margin-bottom: 0; }
-  .job-header { display: flex; justify-content: space-between; gap: 12px; }
+  table.job-header { width: 100%; border-collapse: collapse; }
+  table.job-header td { padding: 0; vertical-align: baseline; }
   .job-company { font-weight: 700; }
-  .job-dates { color: #666; white-space: nowrap; }
+  .job-dates { color: #666; white-space: nowrap; text-align: right; }
   .job-title { margin: 2px 0 0; font-weight: 700; }
-  ul.bullets { margin: 3px 0 0; padding-left: 18px; }
-  ul.bullets li { margin: 3px 0; color: #333; }
+{% include "_job_duties.css.jinja2" %}
   ul.plain { margin: 4px 0 0; padding-left: 18px; }
   ul.plain li { margin: 2px 0; color: #333; }
   section.block { margin-top: 14px; }
@@ -57,7 +57,7 @@
      text is never split mid-sentence. */
   h2.section { break-after: avoid; page-break-after: avoid; }
   .job-title { break-after: avoid; page-break-after: avoid; }
-  ul.bullets li, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
+  p.job-duty, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
   p, li { orphans: 3; widows: 3; }
 </style>
 </head>
@@ -108,14 +108,14 @@
     <h2 class="section">Work Experience</h2>
     {% for job in resume.experience %}
     <div class="job">
-      <div class="job-header">
-        <span class="job-company">{{ job.company }}</span>
-        <span class="job-dates">{{ job.dates }}</span>
-      </div>
+      <table class="job-header">
+        <tr>
+          <td class="job-company">{{ job.company }}</td>
+          <td class="job-dates">{{ job.dates }}</td>
+        </tr>
+      </table>
       <p class="job-title">{{ job.title }}</p>
-      <ul class="bullets">
-        {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}
-      </ul>
+      {% include "_job_duties.html.jinja2" %}
     </div>
     {% endfor %}
   </section>

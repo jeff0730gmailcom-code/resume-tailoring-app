@@ -32,7 +32,8 @@ if sys.platform != "win32":
     _CHROMIUM_ARGS.append("--no-sandbox")
 
 from app.models.schemas import TailoredResumeContent
-from app.services.cv_structurer import clip_job_title
+from app.services.cv_structurer import clip_job_company, clip_job_title
+from app.services.text_sanitize import strip_broken_characters, strip_broken_from_tree
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,6 @@ async def stop_browser() -> None:
     _browser, _playwright = None, None
 
 
-_REPLACEMENT_CHARS = ("\ufffd", "\ufeff", "\u25a1")
 _JUNK_PREFIX_RE = re.compile(
     r"^[\s\ufeff\ufffd\u25a0\u25a1\u25aa\u25ab\u25cf\u25e6\u2022•●◦○□■▪▫?\-]+\s*"
 )
@@ -136,33 +136,30 @@ def render_html(slug: str, resume: TailoredResumeContent) -> str:
 def _sanitize_resume_text(resume: TailoredResumeContent) -> TailoredResumeContent:
     """Drop PDF-extraction junk so templates never render a broken square
     or a packed 'Major: … | DEGREE | SCHOOL' education line."""
-    data = _strip_replacement_chars(resume.model_dump())
+    data = strip_broken_from_tree(resume.model_dump())
     for edu in data.get("education") or []:
         for key in ("degree", "institution", "dates"):
             if edu.get(key):
                 edu[key] = _clean_field(edu[key])
     for job in data.get("experience") or []:
-        if job.get("title"):
-            job["title"] = clip_job_title(job["title"])
+        title = clip_job_title(job.get("title") or "")
+        job["title"] = title
+        job["company"] = clip_job_company(job.get("company") or "", title)
+        job["dates"] = strip_broken_characters(job.get("dates") or "")
+        cleaned_bullets = []
+        for bullet in job.get("bullets") or []:
+            text = strip_broken_characters(_JUNK_PREFIX_RE.sub("", str(bullet)).strip())
+            if text:
+                cleaned_bullets.append(text)
+        job["bullets"] = cleaned_bullets
     return TailoredResumeContent.model_validate(data)
 
 
 def _clean_field(text: str) -> str:
-    cleaned = _JUNK_PREFIX_RE.sub("", text)
+    cleaned = strip_broken_characters(text)
+    cleaned = _JUNK_PREFIX_RE.sub("", cleaned)
     cleaned = _MAJOR_PREFIX_RE.sub("", cleaned)
-    return cleaned.strip(" |,-–—")
-
-
-def _strip_replacement_chars(value):
-    if isinstance(value, str):
-        for char in _REPLACEMENT_CHARS:
-            value = value.replace(char, "")
-        return value
-    if isinstance(value, list):
-        return [_strip_replacement_chars(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _strip_replacement_chars(item) for key, item in value.items()}
-    return value
+    return strip_broken_characters(cleaned.strip(" |,-–—"))
 
 
 async def render_pdf(slug: str, resume: TailoredResumeContent) -> bytes | None:
