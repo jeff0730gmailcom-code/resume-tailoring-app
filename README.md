@@ -105,7 +105,7 @@ uvicorn app.main:app --reload
 ```
 
 On startup the backend automatically creates `backend/data/app.db` (SQLite)
-and seeds the 5 resume templates from `backend/app/templates/resumes/` —
+and seeds the resume templates from `backend/app/templates/resumes/` —
 no manual database setup needed.
 
 The API will be available at `http://localhost:8000`. Check `http://localhost:8000/health`.

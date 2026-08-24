@@ -39,9 +39,9 @@ see `app/models/schemas.py`), and must render every field-bearing section
 (contact, summary, skills, experience, education, certifications, languages)
 so no tailored content is silently dropped for any real resume. Register the
 new slug's display name/description in
-`template_registry.py`'s `_TEMPLATE_META` dict. Never invent a 6th
-"default" template outside the 5 seeded from the attached sample CVs
-without an explicit request.
+`template_registry.py`'s `_TEMPLATE_META` dict. Do not add a new
+template outside the folders already seeded from sample CVs without an
+explicit request.
 
 # The fixed bullet count exception
 

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{ resume.contact.name }}</title>
+<style>
+  /* Page margins live here, not in body padding: a body's own padding is
+     only ever applied ONCE around the whole (possibly multi-page) flow,
+     so every internal page break would otherwise render with ZERO top
+     spacing. @page repeats on every page instead. */
+  @page { margin: 90px 40px 36px 40px; }
+  @page :first { margin-top: 36px; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: Calibri, Arial, "Segoe UI", sans-serif;
+    color: #3a3a3a;
+    font-size: 10.5pt;
+    line-height: 1.42;
+  }
+  h1.name {
+    margin: 0 0 6px;
+    font-size: 28pt;
+    font-weight: 700;
+    color: #3a5554;
+    letter-spacing: 0.01em;
+  }
+  table.top-contact { width: 100%; border-collapse: collapse; margin: 0 0 14px; }
+  table.top-contact td { padding: 0; font-size: 10.5pt; color: #555; }
+  table.top-contact .email { text-align: right; }
+  /* One layout table only - nested tables inside a print PDF collapse
+     title/bullets onto one line. Section label + body are sibling cells;
+     job/education content inside the body cell is plain block markup. */
+  table.layout { width: 100%; border-collapse: collapse; }
+  table.layout th {
+    width: 22%;
+    text-align: left;
+    vertical-align: top;
+    font-size: 12pt;
+    font-weight: 700;
+    color: #c4783a;
+    background: #f4f4f4;
+    padding: 12px 12px 14px 10px;
+  }
+  table.layout td {
+    vertical-align: top;
+    padding: 12px 0 16px 18px;
+    border-bottom: 1px solid #e6e6e6;
+  }
+  table.layout tr:last-child td { border-bottom: none; }
+  p.summary { margin: 0; }
+  .skill-group { margin: 0 0 10px; }
+  .skill-group:last-child { margin-bottom: 0; }
+  .skill-group h3 { margin: 0 0 2px; font-size: 10.5pt; font-weight: 700; color: #222; }
+  .skill-group p { margin: 0; color: #444; }
+  .job { margin-bottom: 14px; }
+  .job:last-child { margin-bottom: 0; }
+  p.job-title { margin: 0; font-weight: 700; color: #222; font-size: 11pt; }
+  p.job-dates { margin: 2px 0 4px; color: #777; font-size: 10pt; }
+  ul.bullets {
+    display: block;
+    margin: 4px 0 0;
+    padding-left: 18px;
+    list-style-type: disc;
+  }
+  ul.bullets li { margin: 3px 0; }
+  .edu-block { margin: 0 0 10px; }
+  .edu-block:last-child { margin-bottom: 0; }
+  p.edu-degree { margin: 0; font-weight: 700; color: #222; }
+  p.edu-school { margin: 3px 0 0; color: #444; }
+  p.edu-dates { margin: 2px 0 0; color: #777; font-size: 10pt; }
+  ul.plain { display: block; margin: 0; padding-left: 18px; list-style-type: disc; }
+  ul.plain li { margin: 2px 0; }
+  table.layout th { break-after: avoid; page-break-after: avoid; }
+  p.job-title { break-after: avoid; page-break-after: avoid; }
+  ul.bullets li, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
+  p, li { orphans: 3; widows: 3; }
+</style>
+</head>
+<body>
+  <h1 class="name">{{ resume.contact.name }}</h1>
+  <table class="top-contact">
+    <tr>
+      <td>{% if resume.contact.location %}{{ resume.contact.location }}{% endif %}{% if resume.contact.phone %}{% if resume.contact.location %} · {% endif %}{{ resume.contact.phone }}{% endif %}</td>
+      <td class="email">{% if resume.contact.email %}{{ resume.contact.email }}{% endif %}{% if resume.contact.linkedin %}{% if resume.contact.email %} · {% endif %}{{ resume.contact.linkedin }}{% endif %}</td>
+    </tr>
+  </table>
+
+  <table class="layout">
+  {% if resume.summary %}
+    <tr>
+      <th>Profile</th>
+      <td><p class="summary">{{ resume.summary }}</p></td>
+    </tr>
+  {% endif %}
+
+  {% set categorized = [
+    ("Frontend Engineering & Architecture", resume.skills.frontend + resume.skills.languages),
+    ("Backend & Platform Integration", resume.skills.backend),
+    ("DevOps & Cloud", resume.skills.cloud + resume.skills.devops),
+    ("Databases", resume.skills.databases),
+    ("AI Development", resume.skills.ai),
+    ("Tools", resume.skills.tools)
+  ] %}
+  {% if resume.skills.languages or resume.skills.backend or resume.skills.frontend or resume.skills.cloud or resume.skills.devops or resume.skills.databases or resume.skills.ai or resume.skills.tools %}
+    <tr>
+      <th>Skills &amp;<br />Abilities</th>
+      <td>
+        {% for label, values in categorized %}
+        {% if values %}
+        <div class="skill-group">
+          <h3>{{ label }}</h3>
+          <p>{{ values | join(", ") }}</p>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </td>
+    </tr>
+  {% endif %}
+
+  {% if resume.experience %}
+    <tr>
+      <th>Experience</th>
+      <td>
+        {% for job in resume.experience %}
+        <div class="job">
+          <p class="job-title">{{ job.title }}{% if job.company %} / {{ job.company }}{% endif %}</p>
+          {% if job.dates %}<p class="job-dates">{{ job.dates }}</p>{% endif %}
+          <ul class="bullets">
+            {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% endfor %}
+      </td>
+    </tr>
+  {% endif %}
+
+  {% if resume.education %}
+    <tr>
+      <th>Education</th>
+      <td>
+        {% for edu in resume.education %}
+        <div class="edu-block">
+          <p class="edu-degree">{{ edu.degree }}</p>
+          {% if edu.institution %}<p class="edu-school">{{ edu.institution }}</p>{% endif %}
+          {% if edu.dates %}<p class="edu-dates">{{ edu.dates }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      </td>
+    </tr>
+  {% endif %}
+
+  {% if resume.certifications %}
+    <tr>
+      <th>Certifications</th>
+      <td>
+        <ul class="plain">{% for line in resume.certifications %}<li>{{ line }}</li>{% endfor %}</ul>
+      </td>
+    </tr>
+  {% endif %}
+
+  {% if resume.languages %}
+    <tr>
+      <th>Languages</th>
+      <td>
+        <ul class="plain">{% for line in resume.languages %}<li>{{ line }}</li>{% endfor %}</ul>
+      </td>
+    </tr>
+  {% endif %}
+  </table>
+</body>
+</html>

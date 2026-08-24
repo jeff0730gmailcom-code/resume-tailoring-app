@@ -53,6 +53,7 @@ from app.prompts.resume_tailor_prompt import (
     get_dynamic_system_prompt,
 )
 from app.services.ats_scorer import compute_ats_match
+from app.services.cv_structurer import clip_job_title
 from app.services.resume_validator import bullets_missing_metrics, normalize_ai_skills
 from app.utils.timing import PerfReport
 
@@ -287,7 +288,12 @@ def _assemble_full_resume(
         bullets = bullets[:EXPERIENCE_BULLET_COUNT]
 
         experience.append(
-            ExperienceEntry(title=title, company=cv_entry.company, dates=cv_entry.dates, bullets=bullets)
+            ExperienceEntry(
+                title=clip_job_title(title),
+                company=cv_entry.company,
+                dates=cv_entry.dates,
+                bullets=bullets,
+            )
         )
 
     return TailoredResumeContent(

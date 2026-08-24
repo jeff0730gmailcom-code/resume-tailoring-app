@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{ resume.contact.name }}</title>
+<style>
+  /* Page margins live here, not in body padding: a body's own padding is
+     only ever applied ONCE around the whole (possibly multi-page) flow,
+     so every internal page break would otherwise render with ZERO top
+     spacing. @page repeats on every page instead. */
+  @page { margin: 90px 52px 40px 52px; }
+  @page :first { margin-top: 40px; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: Calibri, Arial, "Segoe UI", sans-serif;
+    color: #222;
+    font-size: 10.5pt;
+    line-height: 1.42;
+  }
+  h1.name { margin: 0 0 4px; font-size: 22pt; font-weight: 700; color: #2f6b3a; }
+  p.title { margin: 0 0 4px; font-size: 12pt; font-weight: 700; color: #1a1a1a; }
+  p.contact { margin: 0 0 14px; font-size: 10pt; color: #333; }
+  p.contact a { color: #1a56c4; text-decoration: underline; }
+  h2.section {
+    margin: 14px 0 8px;
+    padding-top: 8px;
+    border-top: 1px solid #c8c8c8;
+    font-size: 11.5pt;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #2f6b3a;
+  }
+  p.summary { margin: 0; color: #333; }
+  .skill-group { margin: 0 0 8px; }
+  .skill-group h3 { margin: 0 0 2px; font-size: 10.5pt; font-weight: 700; color: #1a1a1a; }
+  .skill-group p { margin: 0; color: #333; }
+  .job { margin-bottom: 12px; }
+  .job:last-child { margin-bottom: 0; }
+  p.job-title { margin: 0 0 1px; font-weight: 700; color: #1a1a1a; }
+  table.job-header { width: 100%; border-collapse: collapse; }
+  table.job-header td { padding: 0; vertical-align: baseline; }
+  table.job-header .company { font-weight: 400; }
+  table.job-header .dates { text-align: right; white-space: nowrap; font-style: italic; color: #444; }
+  ul.bullets { margin: 4px 0 0; padding-left: 18px; }
+  ul.bullets li { margin: 3px 0; color: #333; }
+  .edu-block { margin: 0 0 6px; }
+  .edu-block .school { font-weight: 700; }
+  .edu-meta { display: flex; justify-content: space-between; gap: 12px; }
+  .edu-dates { font-style: italic; color: #444; white-space: nowrap; }
+  ul.plain { margin: 4px 0 0; padding-left: 18px; }
+  ul.plain li { margin: 2px 0; color: #333; }
+  h2.section { break-after: avoid; page-break-after: avoid; }
+  p.job-title { break-after: avoid; page-break-after: avoid; }
+  table.job-header { break-after: avoid; page-break-after: avoid; }
+  ul.bullets li, ul.plain li { break-inside: avoid; page-break-inside: avoid; }
+  p, li { orphans: 3; widows: 3; }
+</style>
+</head>
+<body>
+  <h1 class="name">{{ resume.contact.name }}</h1>
+  {% if resume.experience %}<p class="title">{{ resume.experience[0].title }}</p>{% endif %}
+  <p class="contact">
+    {% if resume.contact.location %}{{ resume.contact.location }}{% endif %}
+    {% if resume.contact.location and resume.contact.email %}, {% endif %}
+    {% if resume.contact.email %}<a href="mailto:{{ resume.contact.email }}">{{ resume.contact.email }}</a>{% endif %}
+    {% if resume.contact.phone %}{% if resume.contact.location or resume.contact.email %}, {% endif %}{{ resume.contact.phone }}{% endif %}
+    {% if resume.contact.linkedin %}{% if resume.contact.location or resume.contact.email or resume.contact.phone %}, {% endif %}{{ resume.contact.linkedin }}{% endif %}
+  </p>
+
+  {% if resume.summary %}
+  <h2 class="section">Summary</h2>
+  <p class="summary">{{ resume.summary }}</p>
+  {% endif %}
+
+  {% if resume.experience %}
+  <h2 class="section">Experience</h2>
+  {% for job in resume.experience %}
+  <div class="job">
+    <p class="job-title">{{ job.title }}</p>
+    <table class="job-header">
+      <tr>
+        <td class="company">{{ job.company }}</td>
+        <td class="dates">{{ job.dates }}</td>
+      </tr>
+    </table>
+    <ul class="bullets">
+      {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if resume.education %}
+  <h2 class="section">Education</h2>
+  {% for edu in resume.education %}
+  <div class="edu-block">
+    {% if edu.institution %}<div class="school">{{ edu.institution }}</div>{% endif %}
+    <div class="edu-meta">
+      <span>{{ edu.degree }}</span>
+      <span class="edu-dates">{{ edu.dates }}</span>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% set categorized = [
+    ("Languages", resume.skills.languages), ("Backend", resume.skills.backend),
+    ("Frontend", resume.skills.frontend), ("Cloud", resume.skills.cloud),
+    ("DevOps", resume.skills.devops), ("Databases", resume.skills.databases),
+    ("AI", resume.skills.ai), ("Tools", resume.skills.tools)
+  ] %}
+  {% if resume.skills.languages or resume.skills.backend or resume.skills.frontend or resume.skills.cloud or resume.skills.devops or resume.skills.databases or resume.skills.ai or resume.skills.tools %}
+  <h2 class="section">Skills</h2>
+  {% for label, values in categorized %}
+  {% if values %}
+  <div class="skill-group">
+    <h3>{{ label }}</h3>
+    <p>{{ values | join(", ") }}</p>
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% endif %}
+
+  {% if resume.certifications %}
+  <h2 class="section">Certifications</h2>
+  <ul class="plain">{% for line in resume.certifications %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if resume.languages %}
+  <h2 class="section">Languages</h2>
+  <ul class="plain">{% for line in resume.languages %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% endif %}
+</body>
+</html>

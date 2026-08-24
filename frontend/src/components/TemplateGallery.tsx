@@ -48,7 +48,7 @@ export default function TemplateGallery({ selectedSlug, onSelect, disabled, show
 
   return (
     <div>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
         {templates.map((template) => {
           const isSelected = template.slug === selectedSlug;
           return (

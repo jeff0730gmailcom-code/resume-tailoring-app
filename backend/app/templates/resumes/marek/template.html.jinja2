@@ -43,8 +43,13 @@
     margin: 0;
     font-family: Arial, Helvetica, sans-serif;
     font-weight: 700;
-    text-transform: uppercase;
     font-size: 10pt;
+  }
+  .edu-meta {
+    margin: 1px 0 0;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10pt;
+    color: #555;
   }
   ul.plain { margin: 4px 0 0; padding-left: 20px; list-style-type: disc; }
   ul.plain li { margin: 2px 0; }
@@ -60,10 +65,10 @@
     width: 100%;
     border-collapse: collapse;
     font-family: Arial, Helvetica, sans-serif;
-    font-weight: 700;
     font-size: 10.5pt;
   }
   table.job-header td { padding: 0; vertical-align: baseline; }
+  table.job-header .title { font-weight: 700; }
   table.job-header .dates { text-align: right; white-space: nowrap; font-style: italic; font-weight: 400; }
   ul.bullets {
     display: block;
@@ -107,7 +112,10 @@
   <h2 class="section">Education</h2>
   {% for edu in resume.education %}
   <div class="edu-block">
-    <p class="edu-header">{{ edu.degree }}{% if edu.dates %} | {{ edu.dates }}{% endif %}{% if edu.institution %} | {{ edu.institution | upper }}{% endif %}</p>
+    <p class="edu-header">{{ edu.degree }}</p>
+    {% if edu.institution or edu.dates %}
+    <p class="edu-meta">{{ edu.institution }}{% if edu.institution and edu.dates %} | {% endif %}{{ edu.dates }}</p>
+    {% endif %}
   </div>
   {% endfor %}
   {% endif %}
@@ -124,7 +132,7 @@
   <div class="job">
     <table class="job-header">
       <tr>
-        <td>{{ job.title }} | {{ job.company }}</td>
+        <td class="title">{{ job.title }}{% if job.company %} | {{ job.company }}{% endif %}</td>
         <td class="dates">{{ job.dates }}</td>
       </tr>
     </table>

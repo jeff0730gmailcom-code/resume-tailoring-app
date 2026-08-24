@@ -18,6 +18,7 @@ template per design.
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -31,6 +32,7 @@ if sys.platform != "win32":
     _CHROMIUM_ARGS.append("--no-sandbox")
 
 from app.models.schemas import TailoredResumeContent
+from app.services.cv_structurer import clip_job_title
 
 logger = logging.getLogger(__name__)
 
@@ -119,9 +121,48 @@ async def stop_browser() -> None:
     _browser, _playwright = None, None
 
 
+_REPLACEMENT_CHARS = ("\ufffd", "\ufeff", "\u25a1")
+_JUNK_PREFIX_RE = re.compile(
+    r"^[\s\ufeff\ufffd\u25a0\u25a1\u25aa\u25ab\u25cf\u25e6\u2022•●◦○□■▪▫?\-]+\s*"
+)
+_MAJOR_PREFIX_RE = re.compile(r"^(major|degree|field of study)\s*:\s*", re.IGNORECASE)
+
+
 def render_html(slug: str, resume: TailoredResumeContent) -> str:
     template = _env.get_template(f"{slug}/template.html.jinja2")
-    return template.render(resume=resume)
+    return template.render(resume=_sanitize_resume_text(resume))
+
+
+def _sanitize_resume_text(resume: TailoredResumeContent) -> TailoredResumeContent:
+    """Drop PDF-extraction junk so templates never render a broken square
+    or a packed 'Major: … | DEGREE | SCHOOL' education line."""
+    data = _strip_replacement_chars(resume.model_dump())
+    for edu in data.get("education") or []:
+        for key in ("degree", "institution", "dates"):
+            if edu.get(key):
+                edu[key] = _clean_field(edu[key])
+    for job in data.get("experience") or []:
+        if job.get("title"):
+            job["title"] = clip_job_title(job["title"])
+    return TailoredResumeContent.model_validate(data)
+
+
+def _clean_field(text: str) -> str:
+    cleaned = _JUNK_PREFIX_RE.sub("", text)
+    cleaned = _MAJOR_PREFIX_RE.sub("", cleaned)
+    return cleaned.strip(" |,-–—")
+
+
+def _strip_replacement_chars(value):
+    if isinstance(value, str):
+        for char in _REPLACEMENT_CHARS:
+            value = value.replace(char, "")
+        return value
+    if isinstance(value, list):
+        return [_strip_replacement_chars(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _strip_replacement_chars(item) for key, item in value.items()}
+    return value
 
 
 async def render_pdf(slug: str, resume: TailoredResumeContent) -> bytes | None:

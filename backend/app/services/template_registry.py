@@ -29,7 +29,10 @@ _THUMBNAIL_DIRNAME = "template_previews"
 
 # slug -> (display name, short description shown under the thumbnail).
 _TEMPLATE_META: dict[str, tuple[str, str]] = {
+    "aleksandra": ("PHP Lead", "Single-column layout with a green name, all-caps section headings, and grouped skills."),
     "dejan": ("Modern Green", "Clean single-column layout with a green accent bar and bold section headings."),
+    "goran": ("Frontend Serif", "Teal serif name and headings, pipe-separated job lines, and categorized skills."),
+    "luka": ("Two-Column Lead", "Name header with a two-column layout: orange section labels and a light sidebar."),
     "marek": ("Classic Serif", "Traditional black & white layout with a serif font and bold inline keyword emphasis."),
     "mateo": ("Bold Header", "Large two-line name with top-right contact icons and a colored job-title line."),
     "nemanja": ("Centered Rule", "Fully centered header and contact row, with underlined all-caps section headings."),

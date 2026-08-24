@@ -48,6 +48,13 @@ from app.services.docx_segmenter import (
 _SEPARATOR_RE = re.compile(r"\s*[-|–—@]\s*|\s*,\s*")
 _LABEL_PREFIX_RE = re.compile(r"^[A-Za-z][A-Za-z /&]{1,30}:\s*")
 _SKILL_SPLIT_RE = re.compile(r"[,;|•/]")
+# PDF extraction often prefixes a line with a bullet/replacement glyph
+# ("□", U+FFFD, "Major:") that would otherwise leak into the rendered
+# education/job fields as a broken square character.
+_JUNK_PREFIX_RE = re.compile(
+    r"^[\s\ufeff\ufffd\u25a0\u25a1\u25aa\u25ab\u25cf\u25e6\u2022•●◦○□■▪▫?\-]+\s*"
+)
+_MAJOR_PREFIX_RE = re.compile(r"^(major|degree|field of study)\s*:\s*", re.IGNORECASE)
 
 # A more complete date-range matcher than docx_segmenter's (which only needs
 # to *detect* a date range for heading classification). This one is used to
@@ -209,7 +216,12 @@ def _structure_docx(file_path: Path, document: DocumentObject | None) -> MasterC
 def _parse_job_segment(job: JobSegment) -> CvExperienceEntry:
     title, company, dates = _parse_job_header([p.text for p in job.header_paragraphs])
     bullets = [p.text.strip() for p in job.bullet_paragraphs if p.text.strip()]
-    return CvExperienceEntry(title=title, company=company, dates=dates, bullets=bullets)
+    return CvExperienceEntry(
+        title=clip_job_title(title),
+        company=_clean_extracted_text(company),
+        dates=dates,
+        bullets=bullets,
+    )
 
 
 def _parse_job_header(header_lines: list[str]) -> tuple[str, str, str]:
@@ -493,8 +505,48 @@ def _extract_education(education_lines: list[str]) -> list[EducationEntry]:
             degree = parts[0] if parts else remainder
             institution = parts[1] if len(parts) > 1 else ""
 
-        entries.append(EducationEntry(degree=degree, institution=institution, dates=dates))
+        entries.append(
+            EducationEntry(
+                degree=_clean_extracted_text(degree),
+                institution=_clean_extracted_text(institution),
+                dates=_clean_extracted_text(dates),
+            )
+        )
     return entries
+
+
+def _clean_extracted_text(text: str) -> str:
+    """Strip PDF-extraction junk (replacement chars, bullet glyphs, a
+    leading 'Major:' label) so templates never render a broken square or
+    a packed 'Major: … | DEGREE | SCHOOL' line."""
+    cleaned = text.replace("\ufffd", "").replace("\ufeff", "")
+    cleaned = _JUNK_PREFIX_RE.sub("", cleaned)
+    cleaned = _MAJOR_PREFIX_RE.sub("", cleaned)
+    return cleaned.strip(" |,-–—")
+
+
+_ACTION_VERB_RE = re.compile(
+    r"\s+(?=(?:Designed|Architected|Developed|Built|Implemented|Led|Created|"
+    r"Owned|Managed|Improved|Optimized|Engineered|Delivered|Launched|"
+    r"Established|Introduced|Drove|Spearheaded|Conducted|Collaborated)\b)",
+    re.IGNORECASE,
+)
+
+
+def clip_job_title(title: str, max_len: int = 80) -> str:
+    """Keep only the job title itself — never a duty/description sentence
+    that PDF extraction glued onto the same header line. Templates render
+    duties as bullets after the title, not as title text."""
+    title = " ".join(title.replace("\n", " ").split())
+    title = _JUNK_PREFIX_RE.sub("", title)
+    title = _ACTION_VERB_RE.split(title, maxsplit=1)[0].strip(" |/-–—,")
+    if " | " in title:
+        left, right = title.split(" | ", 1)
+        if len(right) > 40 or (right[:1].islower() if right else False):
+            title = left.strip()
+    if len(title) > max_len:
+        title = title[:max_len].rsplit(" ", 1)[0].strip(" |/-–—,")
+    return title
 
 
 def _looks_like_job_boundary(line: str) -> bool:
@@ -638,7 +690,14 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
         job_header_lines.append(header_lines)
         title, company, dates = _parse_job_header(header_lines)
         bullets = _merge_wrapped_bullets(bullet_lines)
-        experience.append(CvExperienceEntry(title=title, company=company, dates=dates, bullets=bullets))
+        experience.append(
+            CvExperienceEntry(
+                title=clip_job_title(title),
+                company=_clean_extracted_text(company),
+                dates=dates,
+                bullets=bullets,
+            )
+        )
 
     # Soften company isolation exactly like _structure_docx: a blank
     # company used to abort the entire structured (fast) path - prefer a

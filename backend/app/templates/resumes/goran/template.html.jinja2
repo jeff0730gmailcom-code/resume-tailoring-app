@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{ resume.contact.name }}</title>
+<style>
+  /* Page margins live here, not in body padding: a body's own padding is
+     only ever applied ONCE around the whole (possibly multi-page) flow,
+     so every internal page break would otherwise render with ZERO top
+     spacing. @page repeats on every page instead. */
+  @page { margin: 90px 54px 40px 54px; }
+  @page :first { margin-top: 42px; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: Georgia, "Times New Roman", Times, serif;
+    color: #333;
+    font-size: 10.5pt;
+    line-height: 1.45;
+  }
+  h1.name {
+    margin: 0 0 6px;
+    font-size: 26pt;
+    font-weight: 700;
+    color: #3d6d78;
+  }
+  hr.rule { border: none; border-top: 1.5px solid #3d6d78; margin: 0 0 8px; }
+  p.contact { margin: 0 0 16px; font-size: 10pt; color: #4a4a4a; }
+  p.contact span:not(:last-child)::after { content: "  |  "; color: #888; }
+  h2.section {
+    margin: 16px 0 8px;
+    font-size: 13.5pt;
+    font-weight: 700;
+    color: #3d6d78;
+  }
+  p.summary { margin: 0; color: #333; }
+  p.job-title {
+    margin: 0;
+    font-weight: 700;
+    font-size: 11pt;
+    color: #1a1a1a;
+  }
+  .job { margin-bottom: 12px; }
+  .job:last-child { margin-bottom: 0; }
+  /* Table header then a block-level bullet list: Chromium print must not
+     glue the first <li> onto the title line. Title + company stay on the
+     header; duties are bullets only, never a paragraph after the title. */
+  table.job-meta { width: 100%; border-collapse: collapse; margin: 0 0 4px; }
+  table.job-meta td { padding: 0; vertical-align: baseline; }
+  table.job-meta .title { font-weight: 700; font-size: 11pt; color: #1a1a1a; }
+  table.job-meta .dates { text-align: right; white-space: nowrap; font-size: 10pt; color: #666; }
+  ul.bullets {
+    display: block;
+    margin: 4px 0 0;
+    padding-left: 18px;
+    list-style-type: disc;
+  }
+  ul.bullets li { margin: 3px 0; color: #333; }
+  .edu-block { margin: 0 0 8px; }
+  p.edu-degree { margin: 0; font-weight: 700; font-size: 10.5pt; color: #1a1a1a; }
+  p.edu-school { margin: 1px 0 0; color: #444; }
+  p.edu-dates { margin: 1px 0 0; font-size: 10pt; color: #666; }
+  .skill-group { margin: 0 0 8px; }
+  .skill-group h3 {
+    margin: 0 0 2px;
+    font-size: 10.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #1a1a1a;
+  }
+  .skill-group ul { margin: 0; padding-left: 18px; }
+  .skill-group li { margin: 2px 0; color: #333; }
+  ul.plain { margin: 4px 0 0; padding-left: 18px; }
+  ul.plain li { margin: 2px 0; color: #333; }
+  h2.section { break-after: avoid; page-break-after: avoid; }
+  p.job-title, table.job-meta { break-after: avoid; page-break-after: avoid; }
+  ul.bullets li, ul.plain li, .skill-group li { break-inside: avoid; page-break-inside: avoid; }
+  p, li { orphans: 3; widows: 3; }
+</style>
+</head>
+<body>
+  <h1 class="name">{{ resume.contact.name }}</h1>
+  <hr class="rule" />
+  <p class="contact">
+    {% if resume.contact.location %}<span>{{ resume.contact.location }}</span>{% endif %}
+    {% if resume.contact.email %}<span>{{ resume.contact.email }}</span>{% endif %}
+    {% if resume.contact.phone %}<span>{{ resume.contact.phone }}</span>{% endif %}
+    {% if resume.contact.linkedin %}<span>{{ resume.contact.linkedin }}</span>{% endif %}
+  </p>
+
+  {% if resume.summary %}
+  <h2 class="section">Profile</h2>
+  <p class="summary">{{ resume.summary }}</p>
+  {% endif %}
+
+  {% if resume.experience %}
+  <h2 class="section">Experience</h2>
+  {% for job in resume.experience %}
+  <div class="job">
+    <table class="job-meta">
+      <tr>
+        <td class="title">{{ job.title }}{% if job.company %} / {{ job.company }}{% endif %}</td>
+        <td class="dates">{{ job.dates }}</td>
+      </tr>
+    </table>
+    <ul class="bullets">
+      {% for bullet in job.bullets %}<li>{{ bullet }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if resume.education %}
+  <h2 class="section">Education</h2>
+  {% for edu in resume.education %}
+  <div class="edu-block">
+    <p class="edu-degree">{{ edu.degree }}</p>
+    {% if edu.institution %}<p class="edu-school">{{ edu.institution }}</p>{% endif %}
+    {% if edu.dates %}<p class="edu-dates">{{ edu.dates }}</p>{% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% set categorized = [
+    ("Languages", resume.skills.languages), ("Backend", resume.skills.backend),
+    ("Frontend", resume.skills.frontend), ("Cloud", resume.skills.cloud),
+    ("DevOps", resume.skills.devops), ("Databases", resume.skills.databases),
+    ("AI", resume.skills.ai), ("Tools", resume.skills.tools)
+  ] %}
+  {% if resume.skills.languages or resume.skills.backend or resume.skills.frontend or resume.skills.cloud or resume.skills.devops or resume.skills.databases or resume.skills.ai or resume.skills.tools %}
+  <h2 class="section">Skills</h2>
+  {% for label, values in categorized %}
+  {% if values %}
+  <div class="skill-group">
+    <h3>{{ label }}</h3>
+    <ul><li>{{ values | join(", ") }}</li></ul>
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% endif %}
+
+  {% if resume.certifications %}
+  <h2 class="section">Certifications</h2>
+  <ul class="plain">{% for line in resume.certifications %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if resume.languages %}
+  <h2 class="section">Languages</h2>
+  <ul class="plain">{% for line in resume.languages %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% endif %}
+</body>
+</html>
