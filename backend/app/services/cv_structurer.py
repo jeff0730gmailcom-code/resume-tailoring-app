@@ -158,6 +158,20 @@ def split_title_company(text: str) -> tuple[str, str]:
     return title + " ", raw[match.end() :].lstrip()
 
 
+def _split_piped_title_company(text: str) -> tuple[str, str] | None:
+    """Split a 'Title | extra | Company' header on pipes only.
+
+    The last segment is the employer. Earlier segments stay in the title so
+    specializations like 'DevOps (Cloud & Automation Systems)' or 'Tech lead'
+    are not mistaken for the company — and hyphens inside parentheses
+    (e.g. 'Backend-Focused Systems') are not treated as separators.
+    """
+    parts = [p.strip() for p in re.split(r"\s*\|\s*", text or "") if p.strip()]
+    if len(parts) < 2:
+        return None
+    return " | ".join(parts[:-1]), parts[-1]
+
+
 def structure_cv(file_path: Path, cv_text: str, document: DocumentObject | None = None) -> MasterCvData:
     """Best-effort, AI-free structuring of a master CV.
 
@@ -279,9 +293,21 @@ def _parse_job_header(header_lines: list[str]) -> tuple[str, str, str]:
         # resumes use, without disturbing the default for every other CV.
         if _TITLE_KEYWORD_RE.search(second) and not _TITLE_KEYWORD_RE.search(first):
             return second, first, dates
+        # Company sits on its own next line — keep the whole first line as
+        # the title (including 'Title | specialty') rather than treating a
+        # specialization as the employer.
+        if _looks_like_company_name(second):
+            return first, second, dates
+        piped = _split_piped_title_company(first)
+        if piped:
+            return piped[0], piped[1], dates
         return first, second, dates
 
     without_dates = _FULL_DATE_RANGE_RE.sub("", content_lines[0]).strip(" |,-–—")
+
+    piped = _split_piped_title_company(without_dates)
+    if piped:
+        return piped[0], piped[1], dates
 
     # Single remaining line in "Title / Company - Location" shape - split
     # it with split_title_company (above) rather than the generic
