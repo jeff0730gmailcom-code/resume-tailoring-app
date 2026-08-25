@@ -45,7 +45,10 @@ reflect that job's real duties.
 
 # Professional Summary & Skills (JD-driven, not CV-restricted)
 
-Summary: target the JD, state years of experience, strongest required and
+Summary: target the JD, state years of experience as the calendar span
+from the master CV's earliest job start date through its latest job end
+date (`app/services/career_tenure.py` — present/current = today; never an
+invented figure such as "8+ years"), strongest required and
 preferred technologies, and a measurable impact — fresh prose, never a
 keyword dump.
 

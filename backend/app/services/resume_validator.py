@@ -5,13 +5,15 @@ the tailoring rules that must never be violated: company names and
 employment dates unchanged from the source CV, the Certifications section
 preserved verbatim, the Languages section forced to its fixed value (see
 app/core/constants.py - never sourced from the CV or the AI), no duplicated
-bullets, and the expected bullet count per job.
+bullets, the expected bullet count per job, and the Professional Summary's
+years of experience matching the CV date span (earliest job start through
+latest job end).
 
-Auto-correction only ever *restores an original CV value* (company/dates/
-certifications), *forces the one fixed non-CV value* (languages), or
-*removes exact duplicate text* — it never invents replacement content, so
-it can only tighten compliance with rules the AI was already instructed to
-follow, never reduce truthfulness.
+Auto-correction *restores an original CV value* (company/dates/
+certifications), *forces the one fixed non-CV value* (languages),
+*replaces an invented summary year-count with the CV-derived career span*
+(see app/services/career_tenure.py), or *removes exact duplicate text* —
+it never invents employers, dates, or certifications.
 
 Also home to close_ats_gaps - AGGRESSIVE_MATCH_MODE's deterministic
 "regenerate until score >= 95%" safety net (see app/core/config.py's
@@ -39,6 +41,7 @@ from app.models.schemas import (
     TailoredResumeContent,
     ValidationReport,
 )
+from app.services.career_tenure import apply_career_years_to_summary, career_tenure_phrase
 from app.services.jd_analyzer import (
     _AI_ML_TOOLS,
     _CLOUD_PLATFORMS,
@@ -59,6 +62,30 @@ from app.services.jd_analyzer import (
 _FRONTEND_FRAMEWORKS = {
     "react", "angular", "vue", "nextjs", "nuxt", "svelte", "ember", "backbone", "gatsby", "remix",
 }
+
+
+def _experience_for_tenure(tailored: TailoredResumeContent, master_cv: MasterCvData):
+    """Prefer master-CV dates; fall back to tailored jobs on the unstructured path."""
+    return master_cv.experience or tailored.experience
+
+
+def _apply_career_tenure(
+    tailored: TailoredResumeContent,
+    master_cv: MasterCvData,
+    issues: list[str],
+) -> None:
+    """Overwrite an invented summary year-count with the CV date span."""
+    experience = _experience_for_tenure(tailored, master_cv)
+    updated = apply_career_years_to_summary(tailored.summary, experience)
+    if updated == (tailored.summary or ""):
+        return
+    phrase = career_tenure_phrase(experience)
+    if phrase:
+        issues.append(
+            f"Summary: years of experience set to {phrase} "
+            "(earliest job start through latest job end)"
+        )
+    tailored.summary = updated
 
 
 def validate_and_fix_resume(
@@ -131,6 +158,8 @@ def validate_and_fix_resume(
 
         if len(entry.bullets) != expected:
             issues.append(f"job #{i + 1}: expected {expected} bullets, got {len(entry.bullets)}")
+
+    _apply_career_tenure(tailored, master_cv, issues)
 
     return ValidationReport(issues=issues)
 
@@ -416,5 +445,8 @@ def close_ats_gaps(tailored: TailoredResumeContent, resume_match: ResumeMatch, m
             "Summary: wove preferred/nice-to-have terms into prose: " + ", ".join(injected)
         )
     tailored.summary = woven
+    # close_ats_gaps rewrites the summary after validate_and_fix_resume, so
+    # re-apply CV-derived years here as the last summary mutation.
+    _apply_career_tenure(tailored, master_cv, issues)
 
     return issues

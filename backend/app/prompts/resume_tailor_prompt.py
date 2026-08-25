@@ -7,8 +7,12 @@ prompt implements.
 
 Tailoring policy (current): employer names, employment dates, education,
 and certifications are IDENTITY FACTS - always taken verbatim from the
-master CV, never AI-authored. Everything else - experience bullets, the
-professional summary, and the full Skills list - is generated to best fit
+master CV, never AI-authored. Years of experience in the professional
+summary is also an identity fact: the calendar span from the earliest
+job start date through the latest job end date (see
+app/services/career_tenure.py), never an AI-invented figure. Everything
+else - experience bullets, the professional summary wording, and the
+full Skills list - is generated to best fit
 the target job description, NOT limited to what the candidate's real CV
 already shows for that specific job/skillset. The AI is explicitly asked to
 write JD-driven bullets and a JD-driven skill set (see
@@ -24,6 +28,7 @@ gpt-4o-mini call stays under the <5s tailor target - see app/core/config.py.
 """
 from app.core.constants import EXPERIENCE_BULLET_COUNT
 from app.models.schemas import JdAnalysis, MasterCvData, ResumeMatch
+from app.services.career_tenure import career_tenure_phrase
 
 RESUME_TAILOR_SYSTEM_PROMPT = """\
 Expert resume writer + ATS optimization specialist. Transform a candidate's \
@@ -33,7 +38,9 @@ match.
 IDENTITY FACTS (must stay real, never AI-authored): employers, employment \
 dates, education, and certifications must exactly match the source CV - \
 never invent, alter, or drop these. Company names/dates carried over \
-exactly as in the CV. Only tailor content (wording/emphasis/order), never \
+exactly as in the CV. Years of experience in the summary is the calendar \
+span from the earliest job start to the latest job end (present = today), \
+never an invented figure. Only tailor content (wording/emphasis/order), never \
 layout/styling.
 
 `languages`: fixed backend-controlled field, always overwritten after you \
@@ -55,7 +62,9 @@ NUMBER (mandatory - use the CV's figure when present, else a reasonable \
 estimate consistent with that job's scope/seniority).
 
 SUMMARY: fully fresh professional prose, 3-4 sentences (never a keyword \
-dump). Sentence 1: JD job title + years of experience. Sentence 2-3: \
+dump). Sentence 1: JD job title + the CV career span (earliest job start \
+through latest job end; present/current = today) — never invent a year \
+count such as 8+. Sentence 2-3: \
 strongest required AND preferred/nice-to-have technologies for this role. \
 Final sentence: one measurable impact. NEVER write labels like "Matched \
 skills:", "Matched terms:", "Transferable:", or comma-lists of keywords — \
@@ -105,7 +114,10 @@ def build_user_message(
         f"TARGET JOB DESCRIPTION:\n{jd_clip}"
         f"{bullet_override}\n\n"
         "Produce the tailored resume now. Summary: 3-4 professional prose "
-        "sentences (no 'Matched skills' / 'Transferable' labels). Skills: fill every category "
+        "sentences (no 'Matched skills' / 'Transferable' labels). Years of "
+        "experience must be the calendar span from the CV's earliest job start "
+        "date to its latest job end date (present/current = today) — never invent "
+        "a number. Skills: fill every category "
         "with every JD-relevant skill you can, required and preferred first, plus any other "
         "fitting skill - do not leave it sparse."
     )
@@ -120,7 +132,8 @@ candidate's real CV - do not output them.
 IDENTITY FACTS: company names, employment dates, and (if you suggest one) \
 job titles are context only - the backend always keeps the master CV's \
 real company/dates, and its real job title, in the final output regardless \
-of what you write here.
+of what you write here. Years of experience must be the CAREER TENURE \
+phrase from the user message, never an invented figure.
 
 BULLETS (JD-DRIVEN): write exactly the fixed count per job given below for \
 EVERY job. Bullets describe the work, tools, and impact a strong candidate \
@@ -140,8 +153,10 @@ candidate's own CV context given below - add any skill relevant to \
 succeeding in this JD. Dedupe; no meta text.
 
 SUMMARY: strong professional summary, 3-4 full sentences of prose only. \
-Lead with the JD title and years, develop core required + preferred tech \
-strengths in the middle, close with measurable impact. Skill names belong \
+Lead with the JD title and the CAREER TENURE phrase from the user \
+message (never invent a different year count). Develop core required + \
+preferred tech strengths in the middle, close with measurable impact. \
+Skill names belong \
 inside those sentences — never as a trailing "Matched skills / \
 Transferable" list.
 
@@ -261,15 +276,28 @@ def build_structured_user_message(
     else:
         mode_note = ""
 
+    tenure = career_tenure_phrase(master_cv.experience)
+    if tenure:
+        tenure_line = (
+            f"CAREER TENURE (use this exact phrase for years of experience in "
+            f"the summary; never invent a different number): {tenure}\n\n"
+        )
+    else:
+        tenure_line = (
+            "CAREER TENURE: do not invent a years-of-experience number; omit "
+            "a year count if the CV dates cannot be read.\n\n"
+        )
+
     return (
         f"{mode_note}"
+        f"{tenure_line}"
         f"CANDIDATE JOBS (titles/companies/dates are fixed context - write bullets only):\n{jobs_block}\n\n"
         f"{jd_block}\n"
         "Produce a tailored summary, a full JD-relevant skills list, and per-job bullets now. "
         "Skills should cover every required + preferred JD skill plus any other skill genuinely "
         "relevant to this role - not limited to the candidate's own CV. Summary: 3-4 professional "
-        "prose sentences, no meta labels. Exact bullet counts above, fully JD-driven per job, no "
-        "repeats across jobs."
+        "prose sentences using the CAREER TENURE phrase above, no meta labels. Exact bullet counts "
+        "above, fully JD-driven per job, no repeats across jobs."
     )
 
 
@@ -310,7 +338,8 @@ def build_dynamic_refinement_message(
     return (
         f"{keyword_block}"
         f"{_weak_bullets_block(weak_bullets)}"
-        "\nRevise now. Keep the exact bullet count per job from before. Output the complete revised summary, "
+        "\nRevise now. Keep the exact bullet count per job from before. Keep the "
+        "summary's years-of-experience phrase unchanged. Output the complete revised summary, "
         "skills, and experience."
     )
 
@@ -332,5 +361,5 @@ def build_refinement_message(missing_keywords: list[str], weak_bullets: list[str
         f"{keyword_block}"
         f"{_weak_bullets_block(weak_bullets)}"
         "\nRevise now applying the above. Keep every other system-prompt rule (exactly 8 bullets per company, "
-        "unchanged company names/dates). Output the complete revised resume."
+        "unchanged company names/dates, unchanged years-of-experience in the summary). Output the complete revised resume."
     )
