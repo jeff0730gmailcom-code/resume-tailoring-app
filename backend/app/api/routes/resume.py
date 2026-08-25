@@ -36,6 +36,8 @@ from fastapi.responses import FileResponse
 
 from app.core.config import settings
 from app.models.schemas import ResumeMetadata, ResumeTemplateInfo, TailorRequest, TailorResponse, UploadResponse
+from app.services.ai_application_answers import generate_application_answers, normalize_application_questions
+from app.services.ai_cover_letter import generate_cover_letter
 from app.services.ai_tailor import AiTailoringError, tailor_resume
 from app.services.ats_scorer import compute_ats_match
 from app.services.cv_parser import CvParsingError, extract_text_from_cv
@@ -192,6 +194,37 @@ async def tailor(payload: TailorRequest) -> TailorResponse:
         logger.warning("Resume validation auto-corrected issues for %s: %s", payload.file_id, validation.issues)
 
     file_utils.save_tailored_resume(payload.file_id, tailored)
+
+    cover_letter = None
+    if payload.include_cover_letter:
+        try:
+            cover_letter = await generate_cover_letter(
+                tailored,
+                jd_analysis,
+                payload.job_description,
+                payload.company_name,
+                perf=perf,
+            )
+            file_utils.save_cover_letter(payload.file_id, cover_letter)
+        except Exception as exc:  # noqa: BLE001 - letter is optional; never drop the resume
+            logger.warning("Cover letter generation failed for %s: %s", payload.file_id, exc)
+
+    application_answers = []
+    questions = normalize_application_questions(payload.application_questions)
+    if questions:
+        try:
+            application_answers = await generate_application_answers(
+                tailored,
+                jd_analysis,
+                payload.job_description,
+                payload.company_name,
+                questions,
+                perf=perf,
+            )
+            file_utils.save_application_answers(payload.file_id, application_answers)
+        except Exception as exc:  # noqa: BLE001 - answers are optional; never drop the resume
+            logger.warning("Application answers generation failed for %s: %s", payload.file_id, exc)
+
     file_utils.save_perf_stages(payload.file_id, perf.snapshot())
 
     # Deterministic (no AI) filename generation - see
@@ -216,6 +249,8 @@ async def tailor(payload: TailorRequest) -> TailorResponse:
         ats_match=ats_match,
         generated_filename=generated_filename,
         template_slug=template.slug,
+        cover_letter=cover_letter,
+        application_answers=application_answers,
     )
 
 

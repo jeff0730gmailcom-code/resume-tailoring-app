@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 
 from app.core.config import settings
-from app.models.schemas import MasterCvData, TailoredResumeContent
+from app.models.schemas import ApplicationAnswerItem, CoverLetterContent, MasterCvData, TailoredResumeContent
 
 # DOCX / DOC / PDF.
 ALLOWED_CV_EXTENSIONS = {".docx", ".doc", ".pdf"}
@@ -18,6 +18,8 @@ ALLOWED_CV_EXTENSIONS = {".docx", ".doc", ".pdf"}
 CV_TEXT_FILENAME = "cv_text.txt"
 MASTER_CV_FILENAME = "master_cv.json"
 TAILORED_RESUME_FILENAME = "tailored_resume.json"
+COVER_LETTER_FILENAME = "cover_letter.json"
+APPLICATION_ANSWERS_FILENAME = "application_answers.json"
 TAILORED_PDF_FILENAME = "tailored_resume.pdf"
 TAILORED_DOCX_FILENAME = "tailored_resume.docx"
 PERF_STAGES_FILENAME = "perf_stages.json"
@@ -108,6 +110,17 @@ def load_tailored_resume(file_id: str) -> TailoredResumeContent | None:
     if not path.exists():
         return None
     return TailoredResumeContent.model_validate(json.loads(path.read_text(encoding="utf-8")))
+
+
+def save_cover_letter(file_id: str, cover_letter: CoverLetterContent) -> None:
+    path = get_file_dir(file_id) / COVER_LETTER_FILENAME
+    path.write_text(cover_letter.model_dump_json(indent=2), encoding="utf-8")
+
+
+def save_application_answers(file_id: str, answers: list[ApplicationAnswerItem]) -> None:
+    path = get_file_dir(file_id) / APPLICATION_ANSWERS_FILENAME
+    payload = [item.model_dump() for item in answers]
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def get_tailored_pdf_path(file_id: str) -> Path:

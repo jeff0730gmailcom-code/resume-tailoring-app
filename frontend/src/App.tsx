@@ -1,11 +1,28 @@
 import { useEffect, useState } from "react";
+import ApplicationAnswersPreview from "./components/ApplicationAnswersPreview";
+import ApplicationQuestionsInput from "./components/ApplicationQuestionsInput";
+import CoverLetterChoice from "./components/CoverLetterChoice";
+import CoverLetterPreview from "./components/CoverLetterPreview";
 import CvUpload from "./components/CvUpload";
 import JobDescriptionInput from "./components/JobDescriptionInput";
 import ResumePreview from "./components/ResumePreview";
 import TailoringDetailsInput from "./components/TailoringDetailsInput";
 import TemplateGallery from "./components/TemplateGallery";
 import { ApiError, checkApiHealth, getDownloadUrl, tailorResume, uploadCv } from "./services/api";
-import type { TailoredResumeContent, UploadedCv } from "./types";
+import type { ApplicationAnswerItem, CoverLetterContent, TailoredResumeContent, UploadedCv } from "./types";
+
+function generateButtonLabel(includeCoverLetter: boolean, hasQuestions: boolean, isGenerating: boolean): string {
+  if (isGenerating) {
+    if (includeCoverLetter && hasQuestions) return "Generating resume, cover letter & answers…";
+    if (includeCoverLetter) return "Generating resume & cover letter…";
+    if (hasQuestions) return "Generating resume & answers…";
+    return "Generating…";
+  }
+  if (includeCoverLetter && hasQuestions) return "Generate Resume, Cover Letter & Answers";
+  if (includeCoverLetter) return "Generate Resume & Cover Letter";
+  if (hasQuestions) return "Generate Resume & Answers";
+  return "Generate Tailored Resume";
+}
 
 function App() {
   const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
@@ -18,11 +35,17 @@ function App() {
   const [mainStack, setMainStack] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [selectedTemplateSlug, setSelectedTemplateSlug] = useState<string | null>(null);
+  const [includeCoverLetter, setIncludeCoverLetter] = useState(false);
+  const [applicationQuestions, setApplicationQuestions] = useState<string[]>([]);
   const [attemptedGenerate, setAttemptedGenerate] = useState(false);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [resume, setResume] = useState<TailoredResumeContent | null>(null);
+  const [coverLetter, setCoverLetter] = useState<CoverLetterContent | null>(null);
+  const [applicationAnswers, setApplicationAnswers] = useState<ApplicationAnswerItem[]>([]);
+  const [lastGenerateIncludedLetter, setLastGenerateIncludedLetter] = useState(false);
+  const [lastGenerateHadQuestions, setLastGenerateHadQuestions] = useState(false);
   const [generatedFilename, setGeneratedFilename] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,6 +58,10 @@ function App() {
     setIsUploading(true);
     setUploadError(null);
     setResume(null);
+    setCoverLetter(null);
+    setApplicationAnswers([]);
+    setLastGenerateIncludedLetter(false);
+    setLastGenerateHadQuestions(false);
     setGeneratedFilename(null);
     try {
       const uploaded = await uploadCv(file);
@@ -52,6 +79,10 @@ function App() {
     if (!cv || !mainStack.trim() || !companyName.trim() || !selectedTemplateSlug) return;
     setIsGenerating(true);
     setGenerateError(null);
+    setCoverLetter(null);
+    setApplicationAnswers([]);
+    setLastGenerateIncludedLetter(includeCoverLetter);
+    setLastGenerateHadQuestions(applicationQuestions.length > 0);
     try {
       // ATS matching/scoring happens entirely on the backend (see
       // app/services/ats_scorer.py) and is intentionally never surfaced in
@@ -62,9 +93,13 @@ function App() {
         jobDescription,
         mainStack.trim(),
         companyName.trim(),
-        selectedTemplateSlug
+        selectedTemplateSlug,
+        includeCoverLetter,
+        applicationQuestions
       );
       setResume(result.resume);
+      setCoverLetter(result.coverLetter);
+      setApplicationAnswers(result.applicationAnswers);
       setGeneratedFilename(result.generatedFilename);
     } catch (err) {
       setGenerateError(
@@ -83,6 +118,8 @@ function App() {
     Boolean(selectedTemplateSlug) &&
     !isGenerating &&
     !isUploading;
+
+  const answersSectionNumber = includeCoverLetter ? 5 : 4;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -129,6 +166,16 @@ function App() {
               showValidation={attemptedGenerate}
             />
           </div>
+          <CoverLetterChoice
+            value={includeCoverLetter}
+            onChange={setIncludeCoverLetter}
+            disabled={isGenerating || isUploading}
+          />
+          <ApplicationQuestionsInput
+            questions={applicationQuestions}
+            onChange={setApplicationQuestions}
+            disabled={isGenerating || isUploading}
+          />
         </section>
 
         <section className="flex flex-col gap-2">
@@ -137,7 +184,7 @@ function App() {
             onClick={handleGenerate}
             className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
           >
-            {isGenerating ? "Generating…" : "Generate Tailored Resume"}
+            {generateButtonLabel(includeCoverLetter, applicationQuestions.length > 0, isGenerating)}
           </button>
           {generateError && <p className="text-sm text-red-600">{generateError}</p>}
         </section>
@@ -152,6 +199,23 @@ function App() {
             generatedFilename={generatedFilename}
           />
         </section>
+
+        <CoverLetterPreview
+          includeCoverLetter={includeCoverLetter}
+          coverLetter={coverLetter}
+          isGenerating={isGenerating}
+          hasResume={Boolean(resume)}
+          lastGenerateIncludedLetter={lastGenerateIncludedLetter}
+        />
+
+        <ApplicationAnswersPreview
+          sectionNumber={answersSectionNumber}
+          questions={applicationQuestions}
+          answers={applicationAnswers}
+          isGenerating={isGenerating}
+          hasResume={Boolean(resume)}
+          lastGenerateHadQuestions={lastGenerateHadQuestions}
+        />
       </main>
     </div>
   );

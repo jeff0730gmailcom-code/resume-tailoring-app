@@ -91,12 +91,59 @@ class ResumeTemplateInfo(BaseModel):
     thumbnail_url: str
 
 
+class CoverLetterDraft(BaseModel):
+    """AI-authored cover letter body only. Sender identity, company name,
+    and contact header are spliced by the backend from the tailored resume
+    and the tailor request - never invented here."""
+
+    greeting: str = Field(description="Salutation, e.g. 'Dear Hiring Manager,'")
+    paragraphs: list[str] = Field(description="3-4 body paragraphs of professional prose")
+    closing: str = Field(description="Complimentary close, e.g. 'Sincerely,' — without the candidate's name")
+
+
+class CoverLetterContent(BaseModel):
+    """Preview-only cover letter. Never exported as PDF/DOCX."""
+
+    recipient_company: str
+    greeting: str
+    paragraphs: list[str]
+    closing: str
+    sender_name: str
+    sender_location: str | None = None
+    sender_email: str | None = None
+    sender_phone: str | None = None
+
+
+class ApplicationAnswerItem(BaseModel):
+    """One employer screening question and the generated answer."""
+
+    question: str
+    answer: str
+
+
+class ApplicationAnswersDraft(BaseModel):
+    """AI-authored answers only. Questions are taken from the user list."""
+
+    answers: list[ApplicationAnswerItem] = Field(
+        description="One answer per question, same order as the questions in the user message"
+    )
+
+
 class TailorRequest(BaseModel):
     file_id: str
     job_description: str
     main_stack: str = Field(description="Main technology stack for this application, e.g. 'Node.js' - used only for filename generation, never sent to the AI prompt")
     company_name: str = Field(description="Target company name for this application, e.g. 'Sequencer' - used only for filename generation, never sent to the AI prompt")
     template_slug: str = Field(description="Selected resume template slug (see GET /api/resume/templates) - determines the layout the tailored content is rendered into on download")
+    include_cover_letter: bool = Field(
+        default=False,
+        description="If true, generate a preview-only cover letter from the JD and tailored resume after tailoring",
+    )
+    application_questions: list[str] = Field(
+        default_factory=list,
+        description="Optional employer screening questions, added one by one. Empty means skip answer generation.",
+        max_length=12,
+    )
 
 
 class AtsMatchInfo(BaseModel):
@@ -120,6 +167,14 @@ class TailorResponse(BaseModel):
         "Same base name is used for both the DOCX and PDF download."
     )
     template_slug: str
+    cover_letter: CoverLetterContent | None = Field(
+        default=None,
+        description="Preview-only cover letter when include_cover_letter was true; otherwise null",
+    )
+    application_answers: list[ApplicationAnswerItem] = Field(
+        default_factory=list,
+        description="Preview-only answers to application_questions, grounded in the tailored resume",
+    )
 
 
 # --- Filename generation + "resume history" storage ------------------------

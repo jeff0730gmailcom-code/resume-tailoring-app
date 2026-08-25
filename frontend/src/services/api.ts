@@ -1,7 +1,7 @@
 /**
  * Client for talking to the Resume Tailor AI backend.
  */
-import type { ResumeTemplateInfo, TailorResult, UploadedCv } from "../types";
+import type { ApplicationAnswerItem, CoverLetterContent, ResumeTemplateInfo, TailorResult, UploadedCv } from "../types";
 
 // Empty string = same origin (used in production, where FastAPI serves
 // the built frontend). Local Vite still sets VITE_API_BASE_URL in .env.
@@ -74,12 +74,42 @@ export async function fetchTemplates(): Promise<ResumeTemplateInfo[]> {
   }));
 }
 
+function mapCoverLetter(raw: Record<string, unknown> | null | undefined): CoverLetterContent | null {
+  if (!raw) return null;
+  return {
+    recipientCompany: String(raw.recipient_company ?? ""),
+    greeting: String(raw.greeting ?? ""),
+    paragraphs: Array.isArray(raw.paragraphs) ? raw.paragraphs.map(String) : [],
+    closing: String(raw.closing ?? ""),
+    senderName: String(raw.sender_name ?? ""),
+    senderLocation: (raw.sender_location as string | null) ?? null,
+    senderEmail: (raw.sender_email as string | null) ?? null,
+    senderPhone: (raw.sender_phone as string | null) ?? null,
+  };
+}
+
+function mapApplicationAnswers(raw: unknown): ApplicationAnswerItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const question = String(row.question ?? "").trim();
+      const answer = String(row.answer ?? "").trim();
+      if (!question || !answer) return null;
+      return { question, answer };
+    })
+    .filter((item): item is ApplicationAnswerItem => item !== null);
+}
+
 export async function tailorResume(
   fileId: string,
   jobDescription: string,
   mainStack: string,
   companyName: string,
-  templateSlug: string
+  templateSlug: string,
+  includeCoverLetter = false,
+  applicationQuestions: string[] = []
 ): Promise<TailorResult> {
   const response = await fetch(`${API_BASE_URL}/api/resume/tailor`, {
     method: "POST",
@@ -90,6 +120,8 @@ export async function tailorResume(
       main_stack: mainStack,
       company_name: companyName,
       template_slug: templateSlug,
+      include_cover_letter: includeCoverLetter,
+      application_questions: applicationQuestions,
     }),
   });
 
@@ -107,6 +139,8 @@ export async function tailorResume(
     },
     generatedFilename: data.generated_filename,
     templateSlug: data.template_slug,
+    coverLetter: mapCoverLetter(data.cover_letter),
+    applicationAnswers: mapApplicationAnswers(data.application_answers),
   };
 }
 
