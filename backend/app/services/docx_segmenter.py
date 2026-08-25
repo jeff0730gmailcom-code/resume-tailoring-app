@@ -64,6 +64,21 @@ _ALL_HEADINGS = (
     | _LANGUAGES_HEADINGS | _CERTIFICATIONS_HEADINGS
 )
 
+# Longest label first so "skills & abilities" wins over "skills", and
+# "work experience" wins over "experience".
+_HEADING_LABELS: list[tuple[str, str]] = sorted(
+    (
+        [(label, "summary") for label in _SUMMARY_HEADINGS]
+        + [(label, "skills") for label in _SKILLS_HEADINGS]
+        + [(label, "experience") for label in _EXPERIENCE_HEADINGS]
+        + [(label, "education") for label in _EDUCATION_HEADINGS]
+        + [(label, "languages") for label in _LANGUAGES_HEADINGS]
+        + [(label, "certifications") for label in _CERTIFICATIONS_HEADINGS]
+    ),
+    key=lambda item: len(item[0]),
+    reverse=True,
+)
+
 # \uf000-\uf0ff: the Private Use Area codepoints Word/PDF exporters commonly
 # remap Wingdings/Symbol-font bullet glyphs to (e.g. \uf0b7 for a round
 # bullet) - pypdf's text extraction preserves these as literal characters
@@ -163,6 +178,37 @@ def _heading_kind(text: str) -> str | None:
     if _match(_CERTIFICATIONS_HEADINGS):
         return "certifications"
     return None
+
+
+def split_section_heading(line: str) -> tuple[str | None, str]:
+    """If a line starts with a known section heading, return (kind, remainder).
+
+    PDF text extraction often glues the heading onto the next paragraph
+    ("Experience Staff / Senior Golang Engineer | May 2023 – Feb 2026").
+    The remainder is leftover content and must still be parsed as a
+    job/education/skills line — not discarded with the heading.
+    """
+    raw = (line or "").strip()
+    if not raw:
+        return None, ""
+    lower = raw.lower()
+    for label, kind in _HEADING_LABELS:
+        if not lower.startswith(label):
+            continue
+        rest = raw[len(label) :]
+        # "experienced" must not match heading "experience".
+        if rest and rest[0].isalnum():
+            continue
+        remainder = rest.lstrip(" \t:|/-–—•·")
+        if not remainder:
+            return kind, ""
+        # Heading qualifier only: "Experience (Selected)".
+        if remainder.startswith("(") and len(remainder) <= 40 and not any(ch.isdigit() for ch in remainder):
+            return kind, ""
+        # Glued section body starts like a title, company, date, or bullet.
+        if remainder[0].isupper() or remainder[0].isdigit() or remainder[0] in "([":
+            return kind, remainder
+    return None, ""
 
 
 def _looks_like_heading(paragraph: Paragraph, text: str) -> bool:

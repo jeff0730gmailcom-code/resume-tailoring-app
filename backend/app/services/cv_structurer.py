@@ -43,6 +43,7 @@ from app.services.docx_segmenter import (
     _looks_like_heading,
     iter_all_paragraphs,
     segment_document,
+    split_section_heading,
 )
 from app.services.text_sanitize import strip_broken_characters, strip_broken_from_tree
 
@@ -69,6 +70,10 @@ _NUMERIC_MONTH_RE = r"(?:0?[1-9]|1[0-2])/"
 _YEAR_SIDE_RE = rf"(?:{_MONTH_RE}\s+|{_NUMERIC_MONTH_RE})?(?:19|20)\d{{2}}"
 _FULL_DATE_RANGE_RE = re.compile(
     rf"{_YEAR_SIDE_RE}\s*(?:[-–—]|to)\s*(?:{_YEAR_SIDE_RE}|present|current|now)",
+    re.IGNORECASE,
+)
+_PAGE_NOISE_RE = re.compile(
+    r"^(?:-+\s*)?\d{1,3}(?:\s+of\s+\d{1,3})?(?:\s*-+)?$",
     re.IGNORECASE,
 )
 
@@ -229,9 +234,13 @@ def _parse_job_segment(job: JobSegment) -> CvExperienceEntry:
     bullets = [_clean_extracted_text(p.text) for p in job.bullet_paragraphs]
     bullets = [bullet for bullet in bullets if bullet]
     clipped_title = clip_job_title(title)
+    company = clip_job_company(_clean_extracted_text(company), clipped_title)
+    if not company and bullets and _looks_like_company_name(bullets[0]):
+        company = clip_job_company(bullets[0], clipped_title)
+        bullets = bullets[1:]
     return CvExperienceEntry(
         title=clipped_title,
-        company=clip_job_company(_clean_extracted_text(company), clipped_title),
+        company=company,
         dates=_clean_extracted_text(dates),
         bullets=bullets,
     )
@@ -486,7 +495,15 @@ def _extract_education(education_lines: list[str]) -> list[EducationEntry]:
 
     blocks: list[list[str]] = []
     for line in lines:
-        if not blocks or _FULL_DATE_RANGE_RE.search(line):
+        if not blocks:
+            blocks.append([line])
+            continue
+        line_has_date = bool(_FULL_DATE_RANGE_RE.search(line))
+        prev_has_date = any(_FULL_DATE_RANGE_RE.search(item) for item in blocks[-1])
+        # A date line belongs to the previous school/degree block when that
+        # block has no dates yet (common PDF layout: school/degree on one
+        # line, "October 2011 - September 2016" on the next).
+        if line_has_date and prev_has_date:
             blocks.append([line])
         else:
             blocks[-1].append(line)
@@ -501,23 +518,13 @@ def _extract_education(education_lines: list[str]) -> list[EducationEntry]:
             _FULL_DATE_RANGE_RE.sub("", line).strip(" |,-–—()") for line in block
         ]
         remainder_parts = [part for part in remainder_parts if part]
+        leftover = " ".join(remainder_parts).strip()
+        # Skip leftover "Bachelor :" / "Master :" year-only rows when the
+        # main school/degree line was already captured.
+        if leftover and re.match(r"^(bachelor|master)\s*:?\s*$", leftover, re.IGNORECASE):
+            continue
 
-        if len(remainder_parts) >= 2:
-            first, second = remainder_parts[0], remainder_parts[1]
-            # Default: first line is the degree, second is the
-            # institution (matches the single-line convention below) -
-            # swap only when the SECOND line reads like a degree and the
-            # first doesn't (the common "Institution | Dates" then
-            # "Degree, Major" two-line layout).
-            if _DEGREE_KEYWORD_RE.search(second) and not _DEGREE_KEYWORD_RE.search(first):
-                degree, institution = second, first
-            else:
-                degree, institution = first, second
-        else:
-            remainder = remainder_parts[0] if remainder_parts else ""
-            parts = [p.strip() for p in _SEPARATOR_RE.split(remainder) if p.strip()]
-            degree = parts[0] if parts else remainder
-            institution = parts[1] if len(parts) > 1 else ""
+        degree, institution = _split_degree_institution(remainder_parts)
 
         entries.append(
             EducationEntry(
@@ -527,6 +534,30 @@ def _extract_education(education_lines: list[str]) -> list[EducationEntry]:
             )
         )
     return entries
+
+
+def _split_degree_institution(remainder_parts: list[str]) -> tuple[str, str]:
+    """Pick degree vs school from one or more leftover education fragments."""
+    if not remainder_parts:
+        return "", ""
+    if len(remainder_parts) >= 2:
+        first, second = remainder_parts[0], remainder_parts[1]
+        if _DEGREE_KEYWORD_RE.search(second) and not _DEGREE_KEYWORD_RE.search(first):
+            return second, first
+        return first, second
+
+    remainder = remainder_parts[0]
+    parts = [p.strip() for p in _SEPARATOR_RE.split(remainder) if p.strip()]
+    if not parts:
+        return remainder, ""
+    degree_hit = next((p for p in parts if _DEGREE_KEYWORD_RE.search(p)), None)
+    uni_hit = next(
+        (p for p in parts if re.search(r"\b(university|college|school|institute)\b", p, re.IGNORECASE)),
+        None,
+    )
+    if degree_hit or uni_hit:
+        return degree_hit or parts[0], uni_hit or ""
+    return parts[0], parts[1] if len(parts) > 1 else ""
 
 
 def _clean_extracted_text(text: str) -> str:
@@ -585,18 +616,35 @@ def clip_job_company(company: str, title: str = "", max_len: int = 60) -> str:
     return strip_broken_characters(company)
 
 
+def _looks_like_company_name(text: str) -> bool:
+    """True for a short employer line sitting under a title/dates header
+    (e.g. "TechNova", "GlobalSoft Systems") — not a duty sentence or bullet."""
+    raw = " ".join((text or "").split())
+    if not raw or len(raw) > 60:
+        return False
+    if BULLET_PREFIX_RE.match(raw) or _FULL_DATE_RANGE_RE.search(raw):
+        return False
+    if _DUTY_START_RE.match(raw) or _TITLE_KEYWORD_RE.search(raw):
+        return False
+    return raw.count(" ") <= 5 and not raw.endswith((".", ";"))
+
+
 def _looks_like_job_boundary(line: str) -> bool:
     """True for a line that starts a new job entry inside the Experience
     section of a plain-text CV: contains a full date range and reads like
     a header rather than a bullet sentence - e.g. "Netguru | Sep 2023 -
     May 2026" or "Senior Engineer, Acme Corp (2019-2022)".
 
-    Bullets that happen to mention two years (rare) are excluded by
-    requiring the line to be short and not end in sentence punctuation -
-    real header lines practically never end with a period/semicolon."""
+    Also matches "Title | May 2023 – February 2026" (company often on the
+    next line). Bullets that happen to mention two years (rare) are
+    excluded by requiring the line to be reasonably short and not end in
+    sentence punctuation - real header lines practically never end with
+    a period/semicolon."""
+    if _PAGE_NOISE_RE.match(line.strip()):
+        return False
     if not _FULL_DATE_RANGE_RE.search(line):
         return False
-    return len(line) < 100 and not line.rstrip().endswith((".", ";"))
+    return len(line) < 160 and not line.rstrip().endswith((".", ";"))
 
 
 def _split_job_header_and_bullets(job_lines: list[str]) -> tuple[list[str], list[str]]:
@@ -604,18 +652,24 @@ def _split_job_header_and_bullets(job_lines: list[str]) -> tuple[list[str], list
     _looks_like_job_boundary) into header line(s) and bullet lines.
 
     The boundary line is always a header line. The line immediately after
-    it is ALSO treated as a header line (the job title) only when it's
-    itself short and isn't the start of the next job - this is what
-    catches the common "Company | Dates" followed by "Title" layout
-    without a bullet-prefix marker to tell them apart. Every line after
-    that is a bullet."""
+    it is ALSO treated as a header line when it looks like an employer
+    name or a short title — this catches "Title | Dates" then "Company"
+    and "Company | Dates" then "Title". Duty/bullet lines stay bullets.
+    """
     if not job_lines:
         return [], []
     header = [job_lines[0]]
     rest = job_lines[1:]
-    if rest and len(rest[0]) < 100 and not _FULL_DATE_RANGE_RE.search(rest[0]):
-        header.append(rest[0])
-        rest = rest[1:]
+    if rest:
+        nxt = rest[0].strip()
+        if (
+            len(nxt) < 100
+            and not _FULL_DATE_RANGE_RE.search(nxt)
+            and not BULLET_PREFIX_RE.match(nxt)
+            and not _DUTY_START_RE.match(nxt)
+        ):
+            header.append(rest[0])
+            rest = rest[1:]
     return header, rest
 
 
@@ -686,11 +740,16 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
     section: str | None = None
 
     for line in lines:
-        heading = _heading_kind(line)
+        if _PAGE_NOISE_RE.match(line):
+            continue
+
+        heading, remainder = split_section_heading(line)
         if heading:
             section = heading
             current_job = None
-            continue
+            if not remainder:
+                continue
+            line = remainder
 
         if section is None:
             preamble.append(line)
@@ -728,10 +787,14 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
         bullets = [_clean_extracted_text(bullet) for bullet in _merge_wrapped_bullets(bullet_lines)]
         bullets = [bullet for bullet in bullets if bullet]
         clipped_title = clip_job_title(title)
+        company = clip_job_company(_clean_extracted_text(company), clipped_title)
+        if not company and bullets and _looks_like_company_name(bullets[0]):
+            company = clip_job_company(bullets[0], clipped_title)
+            bullets = bullets[1:]
         experience.append(
             CvExperienceEntry(
                 title=clipped_title,
-                company=clip_job_company(_clean_extracted_text(company), clipped_title),
+                company=company,
                 dates=_clean_extracted_text(dates),
                 bullets=bullets,
             )
