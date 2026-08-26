@@ -147,21 +147,15 @@ export default function ResumePreview({
             </button>
           </div>
           <p className="text-center text-xs text-slate-500">
-            Creates a folder in Downloads automatically:{" "}
+            Downloads a zip{" "}
+            <span className="font-medium text-slate-700">{folderHint}.zip</span> containing{" "}
             <span className="font-medium text-slate-700">
               {folderHint}/{cvName}.pdf
             </span>{" "}
             or <span className="font-medium text-slate-700">.docx</span>
           </p>
-          {lastSave?.method === "folder" && (
-            <p className="text-center text-xs text-emerald-700">
-              Saved to {lastSave.filePath ?? `${lastSave.folderName}/${lastSave.fileName}`}
-            </p>
-          )}
-          {lastSave?.method === "file" && (
-            <p className="text-center text-xs text-emerald-700">
-              Saved {lastSave.fileName} to your Downloads folder.
-            </p>
+          {lastSave && (
+            <p className="text-center text-xs text-emerald-700">Saved {lastSave.zipName} to your Downloads folder.</p>
           )}
           {saveError && <p className="text-center text-xs text-red-600">{saveError}</p>}
         </div>

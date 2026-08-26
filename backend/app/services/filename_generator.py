@@ -9,7 +9,7 @@ names, with zero latency/token cost and zero risk of the model
 Kept as its own small, reusable service (not inline in a route - see
 .cursor/rules/resume-tailor-code-standards.mdc's "reusable services over
 duplicated logic" rule) so app/api/routes/resume.py can call the exact same
-functions for the Downloads folder name, the CV file inside it, and the
+functions for the zip download name, the CV file inside it, and the
 stored resume history record.
 """
 import re
@@ -86,12 +86,12 @@ def generate_resume_filename(
     company_name: str,
     extension: str = "",
 ) -> str:
-    """Stored export folder name.
+    """Zip base name (no extension).
 
-    Historically this was a single download filename. The browser now
-    creates a folder named this way on the user's computer; the file
-    inside is generate_resume_cv_stem plus .pdf/.docx. Optional
-    extension is only for callers that still want a single-file name.
+    Historically this was a single download filename. Downloads are a zip
+    named this way; the file inside is generate_resume_cv_stem plus
+    .pdf/.docx. Optional extension is only for callers that still want a
+    single-file name.
     """
     base = generate_resume_folder_name(candidate_name, main_stack, company_name)
     extension = extension.strip().lstrip(".")

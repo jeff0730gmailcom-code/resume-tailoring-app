@@ -7,6 +7,7 @@ app/db/models.py) rather than on disk - see app/api/routes/resume.py.
 """
 import json
 import uuid
+import zipfile
 from pathlib import Path
 
 from app.core.config import settings
@@ -125,3 +126,16 @@ def save_application_answers(file_id: str, answers: list[ApplicationAnswerItem])
 
 def get_tailored_pdf_path(file_id: str) -> Path:
     return get_file_dir(file_id) / TAILORED_PDF_FILENAME
+
+
+def write_download_zip(file_id: str, folder_name: str, inner_filename: str, source: Path, format: str) -> Path:
+    """Pack `source` as `{folder_name}/{inner_filename}` inside a zip.
+
+    Zip download name is `{folder_name}.zip`. Opening it shows a folder
+    named like the zip, with the CV (`inner_filename`) inside.
+    """
+    zip_path = get_file_dir(file_id) / f"download_{format}.zip"
+    arcname = f"{folder_name}/{inner_filename}"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.write(source, arcname=arcname)
+    return zip_path

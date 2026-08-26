@@ -155,30 +155,27 @@ export async function downloadResume(
     throw new ApiError(await readErrorDetail(response), response.status);
   }
 
-  const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    const data = await response.json();
-    return {
-      folderName: data.folder_name,
-      fileName: data.file_name,
-      filePath: data.file_path,
-      method: "folder",
-    };
-  }
-
-  const folderName = decodeURIComponent(response.headers.get("X-Resume-Folder-Name") ?? "");
-  const fileName = decodeURIComponent(response.headers.get("X-Resume-File-Name") ?? `resume.${format}`);
   const blob = await response.blob();
+  const zipName = zipNameFromDisposition(response.headers.get("Content-Disposition")) || "resume.zip";
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = fileName;
+  link.download = zipName;
   link.rel = "noopener";
   document.body.appendChild(link);
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 2000);
-  return { folderName, fileName, method: "file" };
+  return { zipName };
+}
+
+function zipNameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const utf = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(header);
+  if (utf) return decodeURIComponent(utf[1].trim().replace(/^"(.*)"$/, "$1"));
+  const ascii = /filename="?([^";]+)"?/i.exec(header);
+  if (ascii) return ascii[1].trim();
+  return null;
 }
 
 /**

@@ -163,8 +163,8 @@ class TailorResponse(BaseModel):
     resume: TailoredResumeContent
     ats_match: AtsMatchInfo
     generated_filename: str = Field(
-        description="Export folder name (no extension), e.g. 'Mateo Baranji_node_robot'. "
-        "The CV file inside that folder is the candidate's name only."
+        description="Zip base name (no extension), e.g. 'Mateo Baranji_node_asd'. "
+        "The CV file inside the zip is the candidate's name only."
     )
     template_slug: str
     cover_letter: CoverLetterContent | None = Field(
@@ -175,13 +175,6 @@ class TailorResponse(BaseModel):
         default_factory=list,
         description="Preview-only answers to application_questions, grounded in the tailored resume",
     )
-
-
-class DownloadSaveResponse(BaseModel):
-    folder_name: str = Field(description="Folder created under Downloads, e.g. 'Mateo Baranji_node_robot'")
-    folder_path: str = Field(description="Absolute path of that folder")
-    file_name: str = Field(description="CV file name inside the folder, e.g. 'Mateo Baranji.pdf'")
-    file_path: str = Field(description="Absolute path of the saved CV file")
 
 
 # --- Filename generation + "resume history" storage ------------------------

@@ -97,7 +97,7 @@ export interface ApplicationAnswerItem {
 export interface TailorResult {
   resume: TailoredResumeContent;
   atsMatch: AtsMatchInfo;
-  /** Export folder name (no extension), e.g. "Mateo Baranji_node_robot". The CV file inside is the candidate's name. */
+  /** Zip base name (no extension), e.g. "Mateo Baranji_node_asd". The CV file inside is the candidate's name. */
   generatedFilename: string;
   templateSlug: string;
   /** Present only when the user asked for a cover letter. Preview-only; never a downloadable file. */
@@ -106,9 +106,5 @@ export interface TailorResult {
 }
 
 export interface DownloadSaveResult {
-  folderName: string;
-  fileName: string;
-  filePath?: string;
-  /** `folder` = created a subfolder in Downloads; `file` = browser saved the CV. */
-  method: "folder" | "file";
+  zipName: string;
 }
