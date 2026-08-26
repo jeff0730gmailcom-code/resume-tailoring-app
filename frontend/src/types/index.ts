@@ -107,7 +107,7 @@ export interface TailorResult {
 
 export interface DownloadSaveResult {
   folderName: string;
-  folderPath: string;
   fileName: string;
-  filePath: string;
+  /** `folder` = created a subfolder on this computer; `file` = browser Downloads. */
+  method: "folder" | "file";
 }

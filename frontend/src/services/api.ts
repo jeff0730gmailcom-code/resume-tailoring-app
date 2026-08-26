@@ -1,7 +1,7 @@
 /**
  * Client for talking to the Resume Tailor AI backend.
  */
-import type { ApplicationAnswerItem, CoverLetterContent, DownloadSaveResult, ResumeTemplateInfo, TailorResult, UploadedCv } from "../types";
+import type { ApplicationAnswerItem, CoverLetterContent, ResumeTemplateInfo, TailorResult, UploadedCv } from "../types";
 
 // Empty string = same origin (used in production, where FastAPI serves
 // the built frontend). Local Vite still sets VITE_API_BASE_URL in .env.
@@ -144,22 +144,22 @@ export async function tailorResume(
   };
 }
 
-export async function saveResumeToDownloads(
+export async function fetchResumeDownload(
   fileId: string,
   format: "pdf" | "docx" = "pdf",
-): Promise<DownloadSaveResult> {
+): Promise<{ blob: Blob; folderName: string; fileName: string }> {
   const response = await fetch(`${API_BASE_URL}/api/resume/download/${fileId}?format=${format}`, {
     method: "POST",
   });
   if (!response.ok) {
     throw new ApiError(await readErrorDetail(response), response.status);
   }
-  const data = await response.json();
+  const folderName = decodeURIComponent(response.headers.get("X-Resume-Folder-Name") ?? "");
+  const fileName = decodeURIComponent(response.headers.get("X-Resume-File-Name") ?? "");
   return {
-    folderName: data.folder_name,
-    folderPath: data.folder_path,
-    fileName: data.file_name,
-    filePath: data.file_path,
+    blob: await response.blob(),
+    folderName,
+    fileName,
   };
 }
 

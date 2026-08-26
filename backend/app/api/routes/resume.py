@@ -14,7 +14,7 @@ format each step is timed against):
   8. DOCX Generation     - /download (only when format=docx: Word COM
                             converts the just-rendered PDF, see
                             app/services/docx_to_pdf.convert_to_docx)
-  9. Response            - /download (save into Downloads folder)
+  9. Response            - /download (return the file to the browser)
 
 Since steps 2-9 span three separate HTTP requests (upload/tailor/download),
 each step's duration is persisted per file_id (see file_utils.save_perf_stages)
@@ -29,20 +29,14 @@ app/services/template_renderer.py and app/services/template_registry.py).
 import asyncio
 import logging
 from pathlib import Path
+from urllib.parse import quote
 
 from docx import Document as DocxDocument
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
-from app.models.schemas import (
-    DownloadSaveResponse,
-    ResumeMetadata,
-    ResumeTemplateInfo,
-    TailorRequest,
-    TailorResponse,
-    UploadResponse,
-)
+from app.models.schemas import ResumeMetadata, ResumeTemplateInfo, TailorRequest, TailorResponse, UploadResponse
 from app.services.ai_application_answers import generate_application_answers, normalize_application_questions
 from app.services.ai_cover_letter import generate_cover_letter
 from app.services.ai_tailor import AiTailoringError, tailor_resume
@@ -50,7 +44,6 @@ from app.services.ats_scorer import compute_ats_match
 from app.services.cv_parser import CvParsingError, extract_text_from_cv
 from app.services.cv_structurer import structure_cv
 from app.services.docx_to_pdf import convert_to_docx
-from app.services.downloads_saver import DownloadsFolderError, reveal_folder, save_resume_to_downloads
 from app.services.filename_generator import generate_resume_cv_stem, generate_resume_filename, generate_resume_folder_name
 from app.services.jd_analyzer import analyze_job_description
 from app.services.resume_matcher import match_resume_to_jd
@@ -337,17 +330,17 @@ async def preview_resume_pdf(file_id: str) -> FileResponse:
     )
 
 
-@router.post("/download/{file_id}", response_model=DownloadSaveResponse)
+@router.post("/download/{file_id}")
 async def download_resume(
     file_id: str,
     format: str = Query("pdf", pattern="^(pdf|docx)$", description="'pdf' (default) or 'docx'"),
-) -> DownloadSaveResponse:
+) -> FileResponse:
     """Steps 7-9: render the tailored content into the template selected at
     /tailor time (Jinja2 + Playwright -> PDF), and - only when
     format=docx - additionally convert that rendered PDF to an editable
-    .docx via Word COM (app/services/docx_to_pdf.convert_to_docx). Then
-    create `{Downloads}/{Name}_{stack}_{company}/` and save the CV as
-    `{Name}.{ext}` inside that folder — no zip, no browser file download.
+    .docx via Word COM (app/services/docx_to_pdf.convert_to_docx). The
+    file is returned to the browser so it can be saved on the user's
+    computer — never written to the server's (Railway container) disk.
     """
     perf = PerfReport(label=f"download:{file_id}:{format}")
     perf.seed(file_utils.load_perf_stages(file_id))
@@ -366,27 +359,23 @@ async def download_resume(
                 detail="Could not convert the rendered PDF to DOCX. Make sure Microsoft Word is installed.",
             )
         inner_name = f"{cv_stem}.docx"
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     else:
         source_path = pdf_path
         inner_name = f"{cv_stem}.pdf"
+        media_type = "application/pdf"
 
-    try:
-        dest_path = await asyncio.to_thread(save_resume_to_downloads, folder_name, inner_name, source_path)
-    except DownloadsFolderError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
-        ) from exc
-
-    await asyncio.to_thread(reveal_folder, dest_path.parent)
+    response = FileResponse(
+        path=source_path,
+        media_type=media_type,
+        filename=inner_name,
+        content_disposition_type="attachment",
+    )
+    response.headers["X-Resume-Folder-Name"] = quote(folder_name, safe="")
+    response.headers["X-Resume-File-Name"] = quote(inner_name, safe="")
 
     with perf.stage("Response"):
         file_utils.save_perf_stages(file_id, perf.snapshot())
 
     perf.log()
-    return DownloadSaveResponse(
-        folder_name=folder_name,
-        folder_path=str(dest_path.parent),
-        file_name=inner_name,
-        file_path=str(dest_path),
-    )
+    return response

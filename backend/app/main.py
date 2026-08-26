@@ -101,6 +101,7 @@ app.add_middleware(
     allow_credentials=not _allow_all_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Resume-Folder-Name", "X-Resume-File-Name", "Content-Disposition"],
 )
 
 app.include_router(resume.router)

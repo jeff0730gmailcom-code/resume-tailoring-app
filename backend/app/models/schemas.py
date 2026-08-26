@@ -177,13 +177,6 @@ class TailorResponse(BaseModel):
     )
 
 
-class DownloadSaveResponse(BaseModel):
-    folder_name: str = Field(description="Folder created under Downloads, e.g. 'Mateo Baranji_node_robot'")
-    folder_path: str = Field(description="Absolute path of that folder")
-    file_name: str = Field(description="CV file name inside the folder, e.g. 'Mateo Baranji.pdf'")
-    file_path: str = Field(description="Absolute path of the saved CV file")
-
-
 # --- Filename generation + "resume history" storage ------------------------
 #
 # ResumeMetadata mirrors app/db/models.py's ResumeRecord row for a given

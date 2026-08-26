@@ -88,9 +88,9 @@ def generate_resume_filename(
 ) -> str:
     """Stored export folder name.
 
-    Historically this was a single download filename. Downloads now create
-    a real folder named this way under the user's Downloads directory; the
-    file inside is generate_resume_cv_stem plus .pdf/.docx. Optional
+    Historically this was a single download filename. The browser now
+    creates a folder named this way on the user's computer; the file
+    inside is generate_resume_cv_stem plus .pdf/.docx. Optional
     extension is only for callers that still want a single-file name.
     """
     base = generate_resume_folder_name(candidate_name, main_stack, company_name)
