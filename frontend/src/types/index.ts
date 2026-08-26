@@ -97,10 +97,17 @@ export interface ApplicationAnswerItem {
 export interface TailorResult {
   resume: TailoredResumeContent;
   atsMatch: AtsMatchInfo;
-  /** Deterministic base filename (no extension), e.g. "Mateo_Baranji_Node.js_Sequencer" - see backend/app/services/filename_generator.py. */
+  /** Export folder name (no extension), e.g. "Mateo Baranji_node_robot". The CV file inside is the candidate's name. */
   generatedFilename: string;
   templateSlug: string;
   /** Present only when the user asked for a cover letter. Preview-only; never a downloadable file. */
   coverLetter: CoverLetterContent | null;
   applicationAnswers: ApplicationAnswerItem[];
+}
+
+export interface DownloadSaveResult {
+  folderName: string;
+  folderPath: string;
+  fileName: string;
+  filePath: string;
 }

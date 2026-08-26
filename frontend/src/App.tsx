@@ -8,7 +8,7 @@ import JobDescriptionInput from "./components/JobDescriptionInput";
 import ResumePreview from "./components/ResumePreview";
 import TailoringDetailsInput from "./components/TailoringDetailsInput";
 import TemplateGallery from "./components/TemplateGallery";
-import { ApiError, checkApiHealth, getDownloadUrl, tailorResume, uploadCv } from "./services/api";
+import { ApiError, checkApiHealth, tailorResume, uploadCv } from "./services/api";
 import type { ApplicationAnswerItem, CoverLetterContent, TailoredResumeContent, UploadedCv } from "./types";
 
 function generateButtonLabel(includeCoverLetter: boolean, hasQuestions: boolean, isGenerating: boolean): string {
@@ -194,8 +194,6 @@ function App() {
           <ResumePreview
             resume={resume}
             fileId={cv?.fileId ?? null}
-            pdfDownloadUrl={resume && cv ? getDownloadUrl(cv.fileId, "pdf") : null}
-            docxDownloadUrl={resume && cv ? getDownloadUrl(cv.fileId, "docx") : null}
             generatedFilename={generatedFilename}
           />
         </section>

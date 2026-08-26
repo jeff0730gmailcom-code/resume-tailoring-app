@@ -14,7 +14,7 @@ format each step is timed against):
   8. DOCX Generation     - /download (only when format=docx: Word COM
                             converts the just-rendered PDF, see
                             app/services/docx_to_pdf.convert_to_docx)
-  9. Response            - /download (save + return)
+  9. Response            - /download (save into Downloads folder)
 
 Since steps 2-9 span three separate HTTP requests (upload/tailor/download),
 each step's duration is persisted per file_id (see file_utils.save_perf_stages)
@@ -35,7 +35,14 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
-from app.models.schemas import ResumeMetadata, ResumeTemplateInfo, TailorRequest, TailorResponse, UploadResponse
+from app.models.schemas import (
+    DownloadSaveResponse,
+    ResumeMetadata,
+    ResumeTemplateInfo,
+    TailorRequest,
+    TailorResponse,
+    UploadResponse,
+)
 from app.services.ai_application_answers import generate_application_answers, normalize_application_questions
 from app.services.ai_cover_letter import generate_cover_letter
 from app.services.ai_tailor import AiTailoringError, tailor_resume
@@ -43,7 +50,8 @@ from app.services.ats_scorer import compute_ats_match
 from app.services.cv_parser import CvParsingError, extract_text_from_cv
 from app.services.cv_structurer import structure_cv
 from app.services.docx_to_pdf import convert_to_docx
-from app.services.filename_generator import generate_resume_filename
+from app.services.downloads_saver import DownloadsFolderError, reveal_folder, save_resume_to_downloads
+from app.services.filename_generator import generate_resume_cv_stem, generate_resume_filename, generate_resume_folder_name
 from app.services.jd_analyzer import analyze_job_description
 from app.services.resume_matcher import match_resume_to_jd
 from app.services.resume_records import get_latest_resume_record, list_resume_records, save_resume_record
@@ -273,14 +281,11 @@ async def resume_history() -> list[ResumeMetadata]:
     ]
 
 
-async def _render_and_cache_pdf(file_id: str, perf: PerfReport) -> tuple[Path, str]:
+async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
     """Shared by /download and /preview: load the tailored content + its
     selected template, render it through the exact same Jinja2 + Playwright
-    pipeline, cache the bytes to disk, and return (pdf_path, base_filename).
-
-    Both endpoints call this so the live in-app preview is always the same
-    PDF bytes the user eventually downloads - never a separate
-    re-implementation that could visually drift from it."""
+    pipeline, cache the bytes to disk, and return (pdf_path, resume_record).
+    """
     tailored = file_utils.load_tailored_resume(file_id)
     if tailored is None:
         raise HTTPException(
@@ -307,7 +312,7 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport) -> tuple[Path, s
             detail="Could not render the resume PDF. Install Google Chrome or Microsoft Edge, or run `playwright install chromium`.",
         )
     pdf_path.write_bytes(pdf_bytes)
-    return pdf_path, record.generated_filename
+    return pdf_path, record
 
 
 @router.get("/preview/{file_id}")
@@ -321,50 +326,67 @@ async def preview_resume_pdf(file_id: str) -> FileResponse:
     repeating headers) which only apply during PDF rendering."""
     perf = PerfReport(label=f"preview:{file_id}")
     perf.seed(file_utils.load_perf_stages(file_id))
-    pdf_path, base_name = await _render_and_cache_pdf(file_id, perf)
+    pdf_path, record = await _render_and_cache_pdf(file_id, perf)
+    cv_stem = generate_resume_cv_stem(record.candidate_name)
     perf.log()
     return FileResponse(
         path=pdf_path,
         media_type="application/pdf",
-        filename=f"{base_name}.pdf",
+        filename=f"{cv_stem}.pdf",
         content_disposition_type="inline",
     )
 
 
-@router.get("/download/{file_id}")
+@router.post("/download/{file_id}", response_model=DownloadSaveResponse)
 async def download_resume(
     file_id: str,
     format: str = Query("pdf", pattern="^(pdf|docx)$", description="'pdf' (default) or 'docx'"),
-) -> FileResponse:
+) -> DownloadSaveResponse:
     """Steps 7-9: render the tailored content into the template selected at
     /tailor time (Jinja2 + Playwright -> PDF), and - only when
     format=docx - additionally convert that rendered PDF to an editable
-    .docx via Word COM (app/services/docx_to_pdf.convert_to_docx), then
-    save and return."""
+    .docx via Word COM (app/services/docx_to_pdf.convert_to_docx). Then
+    create `{Downloads}/{Name}_{stack}_{company}/` and save the CV as
+    `{Name}.{ext}` inside that folder — no zip, no browser file download.
+    """
     perf = PerfReport(label=f"download:{file_id}:{format}")
     perf.seed(file_utils.load_perf_stages(file_id))
 
-    pdf_path, base_name = await _render_and_cache_pdf(file_id, perf)
+    pdf_path, record = await _render_and_cache_pdf(file_id, perf)
+    folder_name = generate_resume_folder_name(record.candidate_name, record.main_stack, record.company_name)
+    cv_stem = generate_resume_cv_stem(record.candidate_name)
 
     if format == "docx":
-        docx_path = file_utils.get_tailored_docx_path(file_id)
+        source_path = file_utils.get_tailored_docx_path(file_id)
         with perf.stage("DOCX Generation"):
-            docx_ok = await convert_to_docx(pdf_path, docx_path)
+            docx_ok = await convert_to_docx(pdf_path, source_path)
         if not docx_ok:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Could not convert the rendered PDF to DOCX. Make sure Microsoft Word is installed.",
             )
-        response = FileResponse(
-            path=docx_path,
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            filename=f"{base_name}.docx",
-        )
+        inner_name = f"{cv_stem}.docx"
     else:
-        response = FileResponse(path=pdf_path, media_type="application/pdf", filename=f"{base_name}.pdf")
+        source_path = pdf_path
+        inner_name = f"{cv_stem}.pdf"
+
+    try:
+        dest_path = await asyncio.to_thread(save_resume_to_downloads, folder_name, inner_name, source_path)
+    except DownloadsFolderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+    await asyncio.to_thread(reveal_folder, dest_path.parent)
 
     with perf.stage("Response"):
         file_utils.save_perf_stages(file_id, perf.snapshot())
 
     perf.log()
-    return response
+    return DownloadSaveResponse(
+        folder_name=folder_name,
+        folder_path=str(dest_path.parent),
+        file_name=inner_name,
+        file_path=str(dest_path),
+    )

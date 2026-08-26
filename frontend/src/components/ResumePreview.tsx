@@ -1,25 +1,29 @@
 import { useEffect, useState } from "react";
-import { ApiError, fetchResumePreviewPdf } from "../services/api";
-import type { TailoredResumeContent } from "../types";
+import { ApiError, fetchResumePreviewPdf, saveResumeToDownloads } from "../services/api";
+import type { DownloadSaveResult, TailoredResumeContent } from "../types";
 
 interface ResumePreviewProps {
   resume: TailoredResumeContent | null;
   fileId: string | null;
-  pdfDownloadUrl: string | null;
-  docxDownloadUrl: string | null;
   generatedFilename?: string | null;
 }
 
 export default function ResumePreview({
   resume,
   fileId,
-  pdfDownloadUrl,
-  docxDownloadUrl,
   generatedFilename,
 }: ResumePreviewProps) {
   const [previewObjectUrl, setPreviewObjectUrl] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [savingFormat, setSavingFormat] = useState<"pdf" | "docx" | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastSave, setLastSave] = useState<DownloadSaveResult | null>(null);
+
+  useEffect(() => {
+    setLastSave(null);
+    setSaveError(null);
+  }, [resume, fileId]);
 
   useEffect(() => {
     if (!resume || !fileId) {
@@ -35,7 +39,7 @@ export default function ResumePreview({
 
     // Render the exact same PDF that /download would produce (see backend's
     // /preview/{file_id} route) so what's shown here is guaranteed to be
-    // pixel-identical to the downloaded template - not a separate,
+    // pixel-identical to the saved template - not a separate,
     // hand-rolled approximation of it.
     fetchResumePreviewPdf(fileId)
       .then((blob) => {
@@ -47,7 +51,8 @@ export default function ResumePreview({
         // Wrapping it in a File (which has a .name) before creating the
         // object URL makes Chromium/Edge's built-in viewer suggest the
         // real generated filename instead.
-        const filename = generatedFilename ? `${generatedFilename}.pdf` : "resume.pdf";
+        const cvStem = resume.contact.name?.trim() || "resume";
+        const filename = `${cvStem}.pdf`;
         const file = new File([blob], filename, { type: "application/pdf" });
         objectUrl = URL.createObjectURL(file);
         setPreviewObjectUrl(objectUrl);
@@ -69,6 +74,20 @@ export default function ResumePreview({
     // re-renders the preview whenever new tailored content is generated.
   }, [resume, fileId, generatedFilename]);
 
+  async function handleSave(format: "pdf" | "docx") {
+    if (!fileId) return;
+    setSavingFormat(format);
+    setSaveError(null);
+    try {
+      const result = await saveResumeToDownloads(fileId, format);
+      setLastSave(result);
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : "Could not save the resume to Downloads.");
+    } finally {
+      setSavingFormat(null);
+    }
+  }
+
   if (!resume) {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-400">
@@ -76,6 +95,9 @@ export default function ResumePreview({
       </div>
     );
   }
+
+  const cvName = resume.contact.name?.trim() || "resume";
+  const folderHint = generatedFilename || "Name_stack_company";
 
   return (
     <div className="flex flex-col gap-4">
@@ -93,7 +115,7 @@ export default function ResumePreview({
         )}
         {!isPreviewLoading && !previewError && previewObjectUrl && (
           <iframe
-            src={previewObjectUrl}
+            src={`${previewObjectUrl}#toolbar=0`}
             title="Tailored resume preview"
             className="aspect-[1/1.414] w-full border-0"
           />
@@ -101,35 +123,42 @@ export default function ResumePreview({
       </div>
 
       <p className="text-xs text-slate-500">
-        This preview is the exact PDF you&apos;ll download - same template, fonts, and layout.
+        This preview is the exact PDF that will be saved — same template, fonts, and layout.
       </p>
 
-      {(pdfDownloadUrl || docxDownloadUrl) && (
+      {fileId && (
         <div className="flex flex-col gap-1">
           <div className="flex gap-2">
-            {pdfDownloadUrl && (
-              <a
-                href={pdfDownloadUrl}
-                className="flex-1 rounded-lg bg-slate-900 px-4 py-3 text-center font-medium text-white hover:bg-slate-800"
-              >
-                Download PDF
-              </a>
-            )}
-            {docxDownloadUrl && (
-              <a
-                href={docxDownloadUrl}
-                className="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-3 text-center font-medium text-slate-800 hover:bg-slate-50"
-              >
-                Download DOCX
-              </a>
-            )}
+            <button
+              type="button"
+              disabled={savingFormat !== null}
+              onClick={() => void handleSave("pdf")}
+              className="flex-1 rounded-lg bg-slate-900 px-4 py-3 text-center font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
+              {savingFormat === "pdf" ? "Saving PDF…" : "Download PDF"}
+            </button>
+            <button
+              type="button"
+              disabled={savingFormat !== null}
+              onClick={() => void handleSave("docx")}
+              className="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-3 text-center font-medium text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+            >
+              {savingFormat === "docx" ? "Saving DOCX…" : "Download DOCX"}
+            </button>
           </div>
-          {generatedFilename && (
-            <p className="text-center text-xs text-slate-500">
-              Will download as <span className="font-medium text-slate-700">{generatedFilename}.pdf</span> /{" "}
-              <span className="font-medium text-slate-700">.docx</span>
+          <p className="text-center text-xs text-slate-500">
+            Saves a folder in Downloads:{" "}
+            <span className="font-medium text-slate-700">
+              {folderHint}/{cvName}.pdf
+            </span>{" "}
+            or <span className="font-medium text-slate-700">.docx</span>
+          </p>
+          {lastSave && (
+            <p className="text-center text-xs text-emerald-700">
+              Saved to {lastSave.filePath}
             </p>
           )}
+          {saveError && <p className="text-center text-xs text-red-600">{saveError}</p>}
         </div>
       )}
     </div>

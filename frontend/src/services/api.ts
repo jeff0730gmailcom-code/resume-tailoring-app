@@ -1,7 +1,7 @@
 /**
  * Client for talking to the Resume Tailor AI backend.
  */
-import type { ApplicationAnswerItem, CoverLetterContent, ResumeTemplateInfo, TailorResult, UploadedCv } from "../types";
+import type { ApplicationAnswerItem, CoverLetterContent, DownloadSaveResult, ResumeTemplateInfo, TailorResult, UploadedCv } from "../types";
 
 // Empty string = same origin (used in production, where FastAPI serves
 // the built frontend). Local Vite still sets VITE_API_BASE_URL in .env.
@@ -144,15 +144,30 @@ export async function tailorResume(
   };
 }
 
-export function getDownloadUrl(fileId: string, format: "pdf" | "docx" = "pdf"): string {
-  return `${API_BASE_URL}/api/resume/download/${fileId}?format=${format}`;
+export async function saveResumeToDownloads(
+  fileId: string,
+  format: "pdf" | "docx" = "pdf",
+): Promise<DownloadSaveResult> {
+  const response = await fetch(`${API_BASE_URL}/api/resume/download/${fileId}?format=${format}`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  const data = await response.json();
+  return {
+    folderName: data.folder_name,
+    folderPath: data.folder_path,
+    fileName: data.file_name,
+    filePath: data.file_path,
+  };
 }
 
 /**
  * Fetches the tailored resume rendered through the exact same Jinja2 +
  * Playwright pipeline used by /download (see backend's /preview/{file_id}
  * route), as a PDF blob. This is what guarantees the in-app preview is
- * pixel-identical to the downloaded file - it's the same bytes, not a
+ * pixel-identical to the saved file - it's the same bytes, not a
  * separate re-implementation.
  */
 export async function fetchResumePreviewPdf(fileId: string): Promise<Blob> {

@@ -3,14 +3,14 @@
 IMPORTANT (per the feature spec): filename generation must be deterministic
 backend logic, NEVER an AI call - this is pure string sanitization, so the
 same (candidate name, stack, company) always produces the exact same
-filename, with zero latency/token cost and zero risk of the model
+names, with zero latency/token cost and zero risk of the model
 "helpfully" altering a company/candidate name.
 
 Kept as its own small, reusable service (not inline in a route - see
 .cursor/rules/resume-tailor-code-standards.mdc's "reusable services over
 duplicated logic" rule) so app/api/routes/resume.py can call the exact same
-function for the DOCX download, the PDF download, and the stored resume
-history record, and any future export path stays automatically consistent.
+functions for the Downloads folder name, the CV file inside it, and the
+stored resume history record.
 """
 import re
 
@@ -49,34 +49,50 @@ def _sanitize_component(value: str) -> str:
     return value.strip("_. ")
 
 
+def generate_resume_folder_name(
+    candidate_name: str,
+    main_stack: str,
+    company_name: str,
+) -> str:
+    """Build the deterministic export folder name:
+
+        {Candidate Name}_{main stack}_{company name}
+
+    e.g. generate_resume_folder_name("Mateo Baranji", "node", "robot")
+         -> "Mateo Baranji_node_robot"
+
+    Candidate name keeps original spacing and casing. Stack and company
+    are lowercased so a typed "Node" / "Robot" still yields `_node_robot`.
+    """
+    parts = [
+        _sanitize_component(candidate_name),
+        _sanitize_component(main_stack).lower(),
+        _sanitize_component(company_name).lower(),
+    ]
+    return "_".join(p for p in parts if p) or _DEFAULT_BASE_NAME
+
+
+def generate_resume_cv_stem(candidate_name: str) -> str:
+    """CV file name inside the export folder (no extension).
+
+    e.g. generate_resume_cv_stem("Mateo Baranji") -> "Mateo Baranji"
+    """
+    return _sanitize_component(candidate_name) or "Resume"
+
+
 def generate_resume_filename(
     candidate_name: str,
     main_stack: str,
     company_name: str,
     extension: str = "",
 ) -> str:
-    """Build the deterministic filename:
+    """Stored export folder name.
 
-        {Candidate Name}_{Main Stack}_{Company Name}[.{extension}]
-
-    e.g. generate_resume_filename("Mateo Baranji", "Java", "Sequencer", "pdf")
-         -> "Mateo Baranji_Java_Sequencer.pdf"
-
-    Spaces WITHIN a component (e.g. a two-word candidate name) are kept as
-    spaces - "_" is used only to join the three top-level components
-    together, never as a stand-in for every space in the name.
-
-    Never includes the job title or a timestamp (per spec) - only these
-    three inputs, in this fixed order. Falls back to a generic base name
-    only in the degenerate case where every component sanitizes to empty
-    (e.g. all-symbol input) so callers always get a valid filename.
+    Historically this was a single download filename. Downloads now create
+    a real folder named this way under the user's Downloads directory; the
+    file inside is generate_resume_cv_stem plus .pdf/.docx. Optional
+    extension is only for callers that still want a single-file name.
     """
-    parts = [
-        _sanitize_component(candidate_name),
-        _sanitize_component(main_stack),
-        _sanitize_component(company_name),
-    ]
-    base = "_".join(p for p in parts if p) or _DEFAULT_BASE_NAME
-
+    base = generate_resume_folder_name(candidate_name, main_stack, company_name)
     extension = extension.strip().lstrip(".")
     return f"{base}.{extension}" if extension else base
