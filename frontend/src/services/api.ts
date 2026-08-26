@@ -1,7 +1,7 @@
 /**
  * Client for talking to the Resume Tailor AI backend.
  */
-import type { ApplicationAnswerItem, CoverLetterContent, ResumeTemplateInfo, TailorResult, UploadedCv } from "../types";
+import type { ApplicationAnswerItem, CoverLetterContent, DownloadSaveResult, ResumeTemplateInfo, TailorResult, UploadedCv } from "../types";
 
 // Empty string = same origin (used in production, where FastAPI serves
 // the built frontend). Local Vite still sets VITE_API_BASE_URL in .env.
@@ -144,23 +144,41 @@ export async function tailorResume(
   };
 }
 
-export async function fetchResumeDownload(
+export async function downloadResume(
   fileId: string,
   format: "pdf" | "docx" = "pdf",
-): Promise<{ blob: Blob; folderName: string; fileName: string }> {
+): Promise<DownloadSaveResult> {
   const response = await fetch(`${API_BASE_URL}/api/resume/download/${fileId}?format=${format}`, {
     method: "POST",
   });
   if (!response.ok) {
     throw new ApiError(await readErrorDetail(response), response.status);
   }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const data = await response.json();
+    return {
+      folderName: data.folder_name,
+      fileName: data.file_name,
+      filePath: data.file_path,
+      method: "folder",
+    };
+  }
+
   const folderName = decodeURIComponent(response.headers.get("X-Resume-Folder-Name") ?? "");
-  const fileName = decodeURIComponent(response.headers.get("X-Resume-File-Name") ?? "");
-  return {
-    blob: await response.blob(),
-    folderName,
-    fileName,
-  };
+  const fileName = decodeURIComponent(response.headers.get("X-Resume-File-Name") ?? `resume.${format}`);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+  return { folderName, fileName, method: "file" };
 }
 
 /**

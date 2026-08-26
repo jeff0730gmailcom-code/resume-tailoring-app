@@ -1,11 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError, fetchResumeDownload, fetchResumePreviewPdf } from "../services/api";
-import {
-  preloadLocalDownloadsFolder,
-  requestLocalDownloadsFolder,
-  triggerBrowserDownload,
-  writeResumeIntoFolder,
-} from "../services/localFolderSave";
+import { ApiError, downloadResume, fetchResumePreviewPdf } from "../services/api";
 import type { DownloadSaveResult, TailoredResumeContent } from "../types";
 
 interface ResumePreviewProps {
@@ -25,10 +19,6 @@ export default function ResumePreview({
   const [savingFormat, setSavingFormat] = useState<"pdf" | "docx" | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSave, setLastSave] = useState<DownloadSaveResult | null>(null);
-
-  useEffect(() => {
-    preloadLocalDownloadsFolder();
-  }, []);
 
   useEffect(() => {
     setLastSave(null);
@@ -89,23 +79,10 @@ export default function ResumePreview({
     setSavingFormat(format);
     setSaveError(null);
     try {
-      // Ask for a local folder immediately (user gesture) while the file
-      // is still being rendered on the server.
-      const folderPromise = requestLocalDownloadsFolder();
-      const filePromise = fetchResumeDownload(fileId, format);
-      const [localRoot, file] = await Promise.all([folderPromise, filePromise]);
-      const folderName = file.folderName || generatedFilename || "resume";
-      const fileName = file.fileName || `${resume?.contact.name?.trim() || "resume"}.${format}`;
-
-      if (localRoot) {
-        await writeResumeIntoFolder(localRoot, folderName, fileName, file.blob);
-        setLastSave({ folderName, fileName, method: "folder" });
-      } else {
-        triggerBrowserDownload(file.blob, fileName);
-        setLastSave({ folderName, fileName, method: "file" });
-      }
+      const result = await downloadResume(fileId, format);
+      setLastSave(result);
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : "Could not save the resume on this computer.");
+      setSaveError(err instanceof ApiError ? err.message : "Could not save the resume to Downloads.");
     } finally {
       setSavingFormat(null);
     }
@@ -170,21 +147,20 @@ export default function ResumePreview({
             </button>
           </div>
           <p className="text-center text-xs text-slate-500">
-            Saves on this computer as{" "}
+            Creates a folder in Downloads automatically:{" "}
             <span className="font-medium text-slate-700">
               {folderHint}/{cvName}.pdf
             </span>{" "}
-            or <span className="font-medium text-slate-700">.docx</span>. When asked, choose your{" "}
-            <span className="font-medium text-slate-700">Downloads</span> folder.
+            or <span className="font-medium text-slate-700">.docx</span>
           </p>
           {lastSave?.method === "folder" && (
             <p className="text-center text-xs text-emerald-700">
-              Saved on this computer: {lastSave.folderName}/{lastSave.fileName}
+              Saved to {lastSave.filePath ?? `${lastSave.folderName}/${lastSave.fileName}`}
             </p>
           )}
           {lastSave?.method === "file" && (
             <p className="text-center text-xs text-emerald-700">
-              Saved {lastSave.fileName} to this computer — check your Downloads folder.
+              Saved {lastSave.fileName} to your Downloads folder.
             </p>
           )}
           {saveError && <p className="text-center text-xs text-red-600">{saveError}</p>}
