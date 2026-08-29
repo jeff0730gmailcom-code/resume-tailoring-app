@@ -211,12 +211,13 @@ function App() {
     return <WaitingApproval name={user.name} onSignOut={handleSignOut} />;
   }
 
-  const isAdmin = user.role === "admin";
-  const viewingOtherActivity = page === "activity" && activityUserId != null && activityUserId !== user.id;
+  const signedInUser = user;
+  const isAdmin = signedInUser.role === "admin";
+  const viewingOtherActivity = page === "activity" && activityUserId != null && activityUserId !== signedInUser.id;
   const shellWidth = page === "users" || page === "activity" ? "max-w-5xl" : "max-w-3xl";
 
   function openMyActivity() {
-    setActivityUserId(user.id);
+    setActivityUserId(signedInUser.id);
     setPage("activity");
   }
 
@@ -278,7 +279,7 @@ function App() {
             >
               API: {apiStatus}
             </span>
-            <span className="hidden font-suit text-lg text-gold-200 sm:inline">{user.name}</span>
+            <span className="hidden font-suit text-lg text-gold-200 sm:inline">{signedInUser.name}</span>
             <button
               type="button"
               onClick={handleSignOut}
@@ -292,7 +293,7 @@ function App() {
 
       {page === "users" && isAdmin ? (
         <main className={`mx-auto ${shellWidth} px-4 py-10`}>
-          <UsersPage currentUser={user} onViewActivity={openMemberActivity} />
+          <UsersPage currentUser={signedInUser} onViewActivity={openMemberActivity} />
         </main>
       ) : page === "activity" ? (
         <main className={`mx-auto ${shellWidth} px-4 py-10`}>
@@ -305,7 +306,7 @@ function App() {
               Back to members
             </button>
           ) : null}
-          <ActivityHistory currentUser={user} memberId={viewingOtherActivity ? activityUserId : null} />
+          <ActivityHistory currentUser={signedInUser} memberId={viewingOtherActivity ? activityUserId : null} />
         </main>
       ) : (
       <main className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-10">
