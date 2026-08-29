@@ -108,6 +108,11 @@ class Settings(BaseSettings):
     # trade latency for a higher hit rate on unusually large skill gaps.
     aggressive_match_ats_max_refine_attempts: int = 0
 
+    jwt_secret: str = ""
+    jwt_expire_minutes: int = 60 * 24 * 7
+    google_client_id: str = ""
+    google_client_secret: str = ""
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

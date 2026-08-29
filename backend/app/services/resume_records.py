@@ -20,6 +20,7 @@ def save_resume_record(
     main_stack: str,
     company_name: str,
     generated_filename: str,
+    user_id: int | None = None,
 ) -> None:
     with session_scope() as session:
         session.add(
@@ -30,6 +31,7 @@ def save_resume_record(
                 main_stack=main_stack,
                 company_name=company_name,
                 generated_filename=generated_filename,
+                user_id=user_id,
             )
         )
 
@@ -47,14 +49,12 @@ def get_latest_resume_record(file_id: str) -> ResumeRecord | None:
         return row
 
 
-def list_resume_records(limit: int = 200) -> list[ResumeRecord]:
-    """Most-recent-first list of every generated resume's metadata."""
+def list_resume_records(limit: int = 200, user_id: int | None = None) -> list[ResumeRecord]:
+    """Most-recent-first list of generated resume metadata."""
     with session_scope() as session:
-        rows = (
-            session.query(ResumeRecord)
-            .order_by(ResumeRecord.id.desc())
-            .limit(limit)
-            .all()
-        )
+        query = session.query(ResumeRecord)
+        if user_id is not None:
+            query = query.filter_by(user_id=user_id)
+        rows = query.order_by(ResumeRecord.id.desc()).limit(limit).all()
         session.expunge_all()
         return rows

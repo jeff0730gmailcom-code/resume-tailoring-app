@@ -186,6 +186,7 @@ class TailorResponse(BaseModel):
 
 
 class ResumeMetadata(BaseModel):
+    id: int
     candidate_name: str
     main_stack: str
     company_name: str
@@ -322,3 +323,62 @@ class ValidationReport(BaseModel):
     @property
     def is_clean(self) -> bool:
         return not self.issues
+
+
+class UserPublic(BaseModel):
+    id: int
+    email: str
+    name: str
+    role: str
+    is_approved: bool = False
+    is_active: bool = True
+
+
+class AdminUserActivity(BaseModel):
+    id: int
+    candidate_name: str
+    main_stack: str
+    company_name: str
+    generated_filename: str
+    created_at: str
+
+
+class AdminUserRow(BaseModel):
+    id: int
+    email: str
+    name: str
+    role: str
+    is_approved: bool
+    is_active: bool
+    created_at: str
+    resume_count: int
+    activity: list[AdminUserActivity] = Field(default_factory=list)
+
+
+class AdminUserUpdate(BaseModel):
+    is_approved: bool | None = None
+    is_active: bool | None = None
+
+
+class AuthConfigResponse(BaseModel):
+    google_client_id: str = ""
+
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: str
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserPublic

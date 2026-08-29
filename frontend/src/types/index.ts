@@ -108,3 +108,42 @@ export interface TailorResult {
 export interface DownloadSaveResult {
   zipName: string;
 }
+
+export interface UserPublic {
+  id: number;
+  email: string;
+  name: string;
+  role: string;
+  is_approved: boolean;
+  is_active: boolean;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: UserPublic;
+}
+
+export interface AdminUserActivity {
+  id: number;
+  candidate_name: string;
+  main_stack: string;
+  company_name: string;
+  generated_filename: string;
+  created_at: string;
+}
+
+export interface AdminUserRow {
+  id: number;
+  email: string;
+  name: string;
+  role: string;
+  is_approved: boolean;
+  is_active: boolean;
+  created_at: string;
+  resume_count: number;
+  activity: AdminUserActivity[];
+}
+
+export function userCanUseApp(user: UserPublic): boolean {
+  return user.role === "admin" || user.is_approved;
+}

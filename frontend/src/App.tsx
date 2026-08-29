@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import ActivityHistory from "./components/ActivityHistory";
 import ApplicationAnswersPreview from "./components/ApplicationAnswersPreview";
 import ApplicationQuestionsInput from "./components/ApplicationQuestionsInput";
+import AuthPage from "./components/AuthPage";
 import CoverLetterChoice from "./components/CoverLetterChoice";
 import CoverLetterPreview from "./components/CoverLetterPreview";
 import CvUpload from "./components/CvUpload";
@@ -8,8 +10,20 @@ import JobDescriptionInput from "./components/JobDescriptionInput";
 import ResumePreview from "./components/ResumePreview";
 import TailoringDetailsInput from "./components/TailoringDetailsInput";
 import TemplateGallery from "./components/TemplateGallery";
-import { ApiError, checkApiHealth, tailorResume, uploadCv } from "./services/api";
-import type { ApplicationAnswerItem, CoverLetterContent, TailoredResumeContent, UploadedCv } from "./types";
+import UsersPage from "./components/UsersPage";
+import WaitingApproval from "./components/WaitingApproval";
+import {
+  ApiError,
+  AUTH_EXPIRED_EVENT,
+  checkApiHealth,
+  clearAccessToken,
+  fetchMe,
+  getAccessToken,
+  tailorResume,
+  uploadCv,
+} from "./services/api";
+import type { ApplicationAnswerItem, CoverLetterContent, TailoredResumeContent, UploadedCv, UserPublic } from "./types";
+import { userCanUseApp } from "./types";
 
 function generateButtonLabel(includeCoverLetter: boolean, hasQuestions: boolean, isGenerating: boolean): string {
   if (isGenerating) {
@@ -25,6 +39,10 @@ function generateButtonLabel(includeCoverLetter: boolean, hasQuestions: boolean,
 }
 
 function App() {
+  const [authReady, setAuthReady] = useState(false);
+  const [user, setUser] = useState<UserPublic | null>(null);
+  const [page, setPage] = useState<"work" | "users" | "activity">("work");
+  const [activityUserId, setActivityUserId] = useState<number | null>(null);
   const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
 
   const [cv, setCv] = useState<UploadedCv | null>(null);
@@ -48,11 +66,67 @@ function App() {
   const [lastGenerateHadQuestions, setLastGenerateHadQuestions] = useState(false);
   const [generatedFilename, setGeneratedFilename] = useState<string | null>(null);
 
+  const resetWorkspace = useCallback(() => {
+    setCv(null);
+    setUploadError(null);
+    setJobDescription("");
+    setMainStack("");
+    setCompanyName("");
+    setSelectedTemplateSlug(null);
+    setIncludeCoverLetter(false);
+    setApplicationQuestions([]);
+    setAttemptedGenerate(false);
+    setGenerateError(null);
+    setResume(null);
+    setCoverLetter(null);
+    setApplicationAnswers([]);
+    setLastGenerateIncludedLetter(false);
+    setLastGenerateHadQuestions(false);
+    setGeneratedFilename(null);
+  }, []);
+
   useEffect(() => {
+    const token = getAccessToken();
+    if (!token) {
+      setAuthReady(true);
+      return;
+    }
+    fetchMe()
+      .then(setUser)
+      .catch(() => {
+        clearAccessToken();
+        setUser(null);
+      })
+      .finally(() => setAuthReady(true));
+  }, []);
+
+  useEffect(() => {
+    function onExpired() {
+      setUser(null);
+      resetWorkspace();
+    }
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, [resetWorkspace]);
+
+  useEffect(() => {
+    if (!user) return;
     checkApiHealth()
       .then(() => setApiStatus("online"))
       .catch(() => setApiStatus("offline"));
+  }, [user]);
+
+  const handleSignedIn = useCallback((nextUser: UserPublic) => {
+    setUser(nextUser);
   }, []);
+
+  function handleSignOut() {
+    clearAccessToken();
+    setUser(null);
+    setPage("work");
+    setActivityUserId(null);
+    resetWorkspace();
+  }
 
   async function handleFileSelected(file: File) {
     setIsUploading(true);
@@ -121,25 +195,119 @@ function App() {
 
   const answersSectionNumber = includeCoverLetter ? 5 : 4;
 
+  if (!authReady) {
+    return (
+      <div className="suit-pinstripe flex min-h-screen items-center justify-center">
+        <p className="font-suit text-2xl italic text-navy-700">Opening the atelier…</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthPage onSignedIn={handleSignedIn} />;
+  }
+
+  if (!userCanUseApp(user)) {
+    return <WaitingApproval name={user.name} onSignOut={handleSignOut} />;
+  }
+
+  const isAdmin = user.role === "admin";
+  const viewingOtherActivity = page === "activity" && activityUserId != null && activityUserId !== user.id;
+  const shellWidth = page === "users" || page === "activity" ? "max-w-5xl" : "max-w-3xl";
+
+  function openMyActivity() {
+    setActivityUserId(user.id);
+    setPage("activity");
+  }
+
+  function openMemberActivity(userId: number) {
+    setActivityUserId(userId);
+    setPage("activity");
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
-          <h1 className="text-xl font-semibold text-slate-900">Resume Tailor AI</h1>
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              apiStatus === "online"
-                ? "bg-green-100 text-green-700"
-                : apiStatus === "offline"
-                  ? "bg-red-100 text-red-700"
-                  : "bg-slate-100 text-slate-500"
-            }`}
-          >
-            API: {apiStatus}
-          </span>
+    <div className="min-h-screen bg-ivory">
+      <header className="border-b-2 border-gold bg-navy">
+        <div className={`mx-auto flex ${shellWidth} items-center justify-between px-4 py-4`}>
+          <div>
+            <p className="font-sans text-[10px] font-semibold tracking-[0.35em] text-gold-200">ATELIER</p>
+            <h1 className="font-display text-xl font-semibold text-ivory">Resume Tailor</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setPage("work")}
+              className={`px-3 py-1.5 font-sans text-xs font-semibold tracking-wide ${
+                page === "work" ? "bg-gold-200 text-navy" : "border border-gold-200 text-gold-200 hover:bg-navy-800"
+              }`}
+            >
+              Atelier
+            </button>
+            <button
+              type="button"
+              onClick={openMyActivity}
+              className={`px-3 py-1.5 font-sans text-xs font-semibold tracking-wide ${
+                page === "activity" && !viewingOtherActivity
+                  ? "bg-gold-200 text-navy"
+                  : "border border-gold-200 text-gold-200 hover:bg-navy-800"
+              }`}
+            >
+              My activity
+            </button>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setPage("users")}
+                className={`px-3 py-1.5 font-sans text-xs font-semibold tracking-wide ${
+                  page === "users" || viewingOtherActivity
+                    ? "bg-gold-200 text-navy"
+                    : "border border-gold-200 text-gold-200 hover:bg-navy-800"
+                }`}
+              >
+                Users
+              </button>
+            ) : null}
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                apiStatus === "online"
+                  ? "bg-green-100 text-green-800"
+                  : apiStatus === "offline"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-navy-700 text-gold-200"
+              }`}
+            >
+              API: {apiStatus}
+            </span>
+            <span className="hidden font-suit text-lg text-gold-200 sm:inline">{user.name}</span>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="border border-gold-200 px-3 py-1.5 font-sans text-xs font-semibold tracking-wide text-gold-200 hover:bg-navy-800"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
 
+      {page === "users" && isAdmin ? (
+        <main className={`mx-auto ${shellWidth} px-4 py-10`}>
+          <UsersPage currentUser={user} onViewActivity={openMemberActivity} />
+        </main>
+      ) : page === "activity" ? (
+        <main className={`mx-auto ${shellWidth} px-4 py-10`}>
+          {viewingOtherActivity ? (
+            <button
+              type="button"
+              onClick={() => setPage("users")}
+              className="mb-6 font-sans text-xs font-semibold tracking-wide text-navy underline"
+            >
+              Back to members
+            </button>
+          ) : null}
+          <ActivityHistory currentUser={user} memberId={viewingOtherActivity ? activityUserId : null} />
+        </main>
+      ) : (
       <main className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-10">
         <section className="flex flex-col gap-4">
           <h2 className="text-lg font-semibold text-slate-800">1. Upload master CV</h2>
@@ -182,7 +350,7 @@ function App() {
           <button
             disabled={!canGenerate}
             onClick={handleGenerate}
-            className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
+            className="w-full bg-navy px-4 py-3 font-sans font-semibold tracking-wide text-gold-200 transition-colors hover:bg-navy-800 disabled:cursor-not-allowed disabled:bg-navy-600 disabled:text-gold-200/50"
           >
             {generateButtonLabel(includeCoverLetter, applicationQuestions.length > 0, isGenerating)}
           </button>
@@ -215,6 +383,7 @@ function App() {
           lastGenerateHadQuestions={lastGenerateHadQuestions}
         />
       </main>
+      )}
     </div>
   );
 }

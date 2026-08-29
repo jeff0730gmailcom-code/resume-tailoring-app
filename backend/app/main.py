@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import resume
+from app.api.routes import admin, auth, resume
 from app.core.config import settings
 from app.db.session import init_db
 from app.models.schemas import HealthResponse
@@ -61,6 +61,8 @@ def _log_active_config() -> None:
         f"OPENAI_CONNECT_TIMEOUT_SECONDS.. {settings.openai_connect_timeout_seconds}",
         f"OPENAI_MAX_RETRIES.............. {settings.openai_max_retries}",
         f"OPENAI_API_KEY set?............. {'yes' if settings.openai_api_key else 'NO - tailoring will fail'}",
+        f"JWT_SECRET set?................. {'yes' if settings.jwt_secret.strip() else 'NO - sign-in will fail'}",
+        f"GOOGLE_CLIENT_ID set?........... {'yes' if settings.google_client_id.strip() else 'no (email/password only)'}",
         f"TAILORING_MODE.................. {settings.tailoring_mode}",
         f"TAILORING_TIME_BUDGET_SECONDS... {settings.tailoring_time_budget_seconds}",
         "=========================================================",
@@ -104,6 +106,8 @@ app.add_middleware(
     expose_headers=["X-Resume-Folder-Name", "X-Resume-File-Name", "Content-Disposition"],
 )
 
+app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(resume.router)
 # Serves generated template gallery thumbnails (see
 # app/services/template_registry.py) at /static/template_previews/<slug>.png.

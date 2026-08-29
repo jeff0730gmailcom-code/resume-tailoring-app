@@ -26,6 +26,7 @@ _engine = create_engine(
     settings.database_url,
     connect_args={"check_same_thread": False},
 )
+engine = _engine
 SessionLocal = sessionmaker(bind=_engine, autoflush=False, autocommit=False)
 
 
@@ -34,6 +35,10 @@ def init_db() -> None:
     once the schema already exists. No Alembic migrations at this MVP
     stage; see app/db/__init__.py."""
     Base.metadata.create_all(bind=_engine)
+    from app.services.admin_users import ensure_founding_admin, ensure_users_schema
+
+    ensure_users_schema()
+    ensure_founding_admin()
 
 
 @contextmanager

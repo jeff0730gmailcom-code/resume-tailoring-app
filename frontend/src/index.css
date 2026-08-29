@@ -1,3 +1,21 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.suit-pinstripe {
+  background-color: #f4efe6;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 11px,
+      rgba(36, 58, 94, 0.08) 11px,
+      rgba(36, 58, 94, 0.08) 12px
+    ),
+    radial-gradient(ellipse at 18% 0%, rgba(201, 162, 39, 0.14), transparent 50%);
+}
+
+.suit-gold-rule {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #c9a227, transparent);
+}

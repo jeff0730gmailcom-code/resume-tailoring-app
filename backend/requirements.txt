@@ -34,3 +34,9 @@ pymupdf==1.28.0
 # PDF into an editable .docx download (see app/services/docx_to_pdf.py).
 # Requires Microsoft Word to be installed on the host machine.
 pywin32==312; sys_platform == "win32"
+
+# Auth: password hashing, JWTs, Google ID-token verification.
+bcrypt==4.3.0
+PyJWT==2.10.1
+google-auth==2.41.1
+requests==2.32.5

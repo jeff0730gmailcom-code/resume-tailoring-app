@@ -45,6 +45,7 @@ from app.services.docx_segmenter import (
     segment_document,
     split_section_heading,
 )
+from app.services.employer_overrides import apply_candidate_employer_overrides
 from app.services.text_sanitize import strip_broken_characters, strip_broken_from_tree
 
 _SEPARATOR_RE = re.compile(r"\s*[-|–—@]\s*|\s*,\s*")
@@ -206,7 +207,7 @@ def _finalize_master_cv(structured: MasterCvData, cv_text: str) -> MasterCvData:
     """Strip extraction tofu from every field, then attach cleaned raw_text."""
     data = strip_broken_from_tree(structured.model_dump())
     data["raw_text"] = cv_text
-    return MasterCvData.model_validate(data)
+    return apply_candidate_employer_overrides(MasterCvData.model_validate(data))
 
 
 def _structure_docx(file_path: Path, document: DocumentObject | None) -> MasterCvData | None:

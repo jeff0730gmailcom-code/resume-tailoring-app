@@ -6,10 +6,8 @@
 - ResumeRecord: one row per generated tailored resume, replacing the old
   flat-file "resume history" log - see app/api/routes/resume.py.
 
-user_id on ResumeRecord is deliberately nullable and unused for now -
-authentication is out of scope for this phase, but the column means adding
-user accounts later never requires a schema rework, just wiring an actual
-user id through.
+user_id on ResumeRecord is filled when a signed-in user tailors a resume.
+See app/db/models.py User and app/api/routes/auth.py.
 """
 from __future__ import annotations
 
@@ -56,8 +54,25 @@ class ResumeRecord(Base):
     company_name: Mapped[str] = mapped_column(String(200), nullable=False)
     generated_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
-    # Reserved for future auth - always NULL today, never read/written
-    # anywhere yet. See module docstring.
-    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Reserved for auth - set on /tailor when the caller is signed in.
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     template: Mapped["ResumeTemplate | None"] = relationship(back_populates="resume_records")
+    user: Mapped["User | None"] = relationship(back_populates="resume_records")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    google_id: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
+    role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    is_approved: Mapped[bool] = mapped_column(default=False, nullable=False)
+    email_verified: Mapped[bool] = mapped_column(default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+    resume_records: Mapped[list["ResumeRecord"]] = relationship(back_populates="user")

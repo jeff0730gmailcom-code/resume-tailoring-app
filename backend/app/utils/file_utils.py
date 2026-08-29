@@ -12,6 +12,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.models.schemas import ApplicationAnswerItem, CoverLetterContent, MasterCvData, TailoredResumeContent
+from app.services.employer_overrides import apply_candidate_employer_overrides
 
 # DOCX / DOC / PDF.
 ALLOWED_CV_EXTENSIONS = {".docx", ".doc", ".pdf"}
@@ -24,6 +25,7 @@ APPLICATION_ANSWERS_FILENAME = "application_answers.json"
 TAILORED_PDF_FILENAME = "tailored_resume.pdf"
 TAILORED_DOCX_FILENAME = "tailored_resume.docx"
 PERF_STAGES_FILENAME = "perf_stages.json"
+OWNER_FILENAME = "owner.json"
 
 
 def generate_temp_file_id() -> str:
@@ -36,6 +38,23 @@ def get_file_dir(file_id: str) -> Path:
     file_dir = settings.temp_storage_path / file_id
     file_dir.mkdir(parents=True, exist_ok=True)
     return file_dir
+
+
+def save_file_owner(file_id: str, user_id: int) -> None:
+    path = get_file_dir(file_id) / OWNER_FILENAME
+    path.write_text(json.dumps({"user_id": user_id}), encoding="utf-8")
+
+
+def get_file_owner_id(file_id: str) -> int | None:
+    path = get_file_dir(file_id) / OWNER_FILENAME
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    user_id = payload.get("user_id")
+    return int(user_id) if user_id is not None else None
 
 
 def save_upload(file_id: str, original_filename: str, content: bytes) -> Path:
@@ -69,7 +88,8 @@ def load_master_cv(file_id: str) -> MasterCvData | None:
     path = get_file_dir(file_id) / MASTER_CV_FILENAME
     if not path.exists():
         return None
-    return MasterCvData.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    master_cv = MasterCvData.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    return apply_candidate_employer_overrides(master_cv)
 
 
 def save_perf_stages(file_id: str, stages: dict[str, float]) -> None:

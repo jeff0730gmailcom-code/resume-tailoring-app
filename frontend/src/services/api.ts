@@ -1,11 +1,25 @@
 /**
  * Client for talking to the Resume Tailor AI backend.
  */
-import type { ApplicationAnswerItem, CoverLetterContent, DownloadSaveResult, ResumeTemplateInfo, TailorResult, UploadedCv } from "../types";
+import type {
+  AdminUserActivity,
+  AdminUserRow,
+  ApplicationAnswerItem,
+  AuthResponse,
+  CoverLetterContent,
+  DownloadSaveResult,
+  ResumeTemplateInfo,
+  TailorResult,
+  UploadedCv,
+  UserPublic,
+} from "../types";
 
 // Empty string = same origin (used in production, where FastAPI serves
 // the built frontend). Local Vite still sets VITE_API_BASE_URL in .env.
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+
+const TOKEN_KEY = "resume_tailor_token";
+export const AUTH_EXPIRED_EVENT = "auth:expired";
 
 export interface HealthResponse {
   status: string;
@@ -21,14 +35,76 @@ export class ApiError extends Error {
   }
 }
 
+export function getAccessToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setAccessToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearAccessToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+function authHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
+  const token = getAccessToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return headers;
+}
+
+function isPublicAuthPath(path: string): boolean {
+  return (
+    path === "/api/auth/login" ||
+    path === "/api/auth/register" ||
+    path === "/api/auth/google" ||
+    path === "/api/auth/config"
+  );
+}
+
+async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: authHeaders(init.headers),
+  });
+  if (response.status === 401 && !isPublicAuthPath(path)) {
+    clearAccessToken();
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  }
+  return response;
+}
+
 async function readErrorDetail(response: Response): Promise<string> {
   try {
     const body = await response.json();
     if (typeof body?.detail === "string") return body.detail;
+    if (Array.isArray(body?.detail) && body.detail[0]?.msg) return String(body.detail[0].msg);
   } catch {
     // response wasn't JSON, fall through to generic message
   }
   return `Request failed with status ${response.status}`;
+}
+
+function mapUser(raw: Record<string, unknown>): UserPublic {
+  const role = String(raw.role ?? "user");
+  return {
+    id: Number(raw.id),
+    email: String(raw.email ?? ""),
+    name: String(raw.name ?? ""),
+    role,
+    is_approved: Boolean(raw.is_approved) || role === "admin",
+    is_active: raw.is_active !== false,
+  };
+}
+
+function persistAuth(data: Record<string, unknown>): AuthResponse {
+  const token = String(data.token ?? "");
+  setAccessToken(token);
+  return {
+    token,
+    user: mapUser((data.user as Record<string, unknown>) ?? {}),
+  };
 }
 
 export async function checkApiHealth(): Promise<HealthResponse> {
@@ -39,11 +115,118 @@ export async function checkApiHealth(): Promise<HealthResponse> {
   return response.json();
 }
 
+export async function fetchAuthConfig(): Promise<{ googleClientId: string }> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/config`);
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  const data = await response.json();
+  return { googleClientId: String(data.google_client_id ?? "") };
+}
+
+export async function registerAccount(name: string, email: string, password: string): Promise<AuthResponse> {
+  const response = await apiFetch("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, email, password }),
+  });
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  return persistAuth(await response.json());
+}
+
+export async function loginWithEmail(email: string, password: string): Promise<AuthResponse> {
+  const response = await apiFetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  return persistAuth(await response.json());
+}
+
+export async function loginWithGoogle(credential: string): Promise<AuthResponse> {
+  const response = await apiFetch("/api/auth/google", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ credential }),
+  });
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  return persistAuth(await response.json());
+}
+
+export async function fetchMe(): Promise<UserPublic> {
+  const response = await apiFetch("/api/auth/me");
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  return mapUser(await response.json());
+}
+
+export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
+  const response = await apiFetch("/api/admin/users");
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  return response.json();
+}
+
+export async function fetchAdminUser(userId: number): Promise<AdminUserRow> {
+  const response = await apiFetch(`/api/admin/users/${userId}`);
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  return response.json();
+}
+
+export async function updateAdminUser(
+  userId: number,
+  patch: { is_approved?: boolean; is_active?: boolean }
+): Promise<AdminUserRow> {
+  const response = await apiFetch(`/api/admin/users/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  return response.json();
+}
+
+export async function deleteAdminUser(userId: number): Promise<void> {
+  const response = await apiFetch(`/api/admin/users/${userId}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+}
+
+export async function fetchMyActivity(): Promise<AdminUserActivity[]> {
+  const response = await apiFetch("/api/resume/history");
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  const rows = (await response.json()) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: Number(row.id),
+    candidate_name: String(row.candidate_name ?? ""),
+    main_stack: String(row.main_stack ?? ""),
+    company_name: String(row.company_name ?? ""),
+    generated_filename: String(row.generated_filename ?? ""),
+    created_at: String(row.created_at ?? ""),
+  }));
+}
+
 export async function uploadCv(file: File): Promise<UploadedCv> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${API_BASE_URL}/api/resume/upload`, {
+  const response = await apiFetch("/api/resume/upload", {
     method: "POST",
     body: formData,
   });
@@ -111,7 +294,7 @@ export async function tailorResume(
   includeCoverLetter = false,
   applicationQuestions: string[] = []
 ): Promise<TailorResult> {
-  const response = await fetch(`${API_BASE_URL}/api/resume/tailor`, {
+  const response = await apiFetch("/api/resume/tailor", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -148,7 +331,7 @@ export async function downloadResume(
   fileId: string,
   format: "pdf" | "docx" = "pdf",
 ): Promise<DownloadSaveResult> {
-  const response = await fetch(`${API_BASE_URL}/api/resume/download/${fileId}?format=${format}`, {
+  const response = await apiFetch(`/api/resume/download/${fileId}?format=${format}`, {
     method: "POST",
   });
   if (!response.ok) {
@@ -186,7 +369,7 @@ function zipNameFromDisposition(header: string | null): string | null {
  * separate re-implementation.
  */
 export async function fetchResumePreviewPdf(fileId: string): Promise<Blob> {
-  const response = await fetch(`${API_BASE_URL}/api/resume/preview/${fileId}`);
+  const response = await apiFetch(`/api/resume/preview/${fileId}`);
   if (!response.ok) {
     throw new ApiError(await readErrorDetail(response), response.status);
   }

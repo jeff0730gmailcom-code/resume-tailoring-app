@@ -31,11 +31,12 @@ import logging
 from pathlib import Path
 
 from docx import Document as DocxDocument
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 
+from app.api.deps import get_approved_user
 from app.core.config import settings
-from app.models.schemas import ResumeMetadata, ResumeTemplateInfo, TailorRequest, TailorResponse, UploadResponse
+from app.models.schemas import ResumeMetadata, ResumeTemplateInfo, TailorRequest, TailorResponse, UploadResponse, UserPublic
 from app.services.ai_application_answers import generate_application_answers, normalize_application_questions
 from app.services.ai_cover_letter import generate_cover_letter
 from app.services.ai_tailor import AiTailoringError, tailor_resume
@@ -58,6 +59,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/resume", tags=["resume"])
 
 
+def _require_file_owner(file_id: str, user: UserPublic) -> None:
+    owner_id = file_utils.get_file_owner_id(file_id)
+    if owner_id is None or owner_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this file.")
+
+
 @router.get("/templates", response_model=list[ResumeTemplateInfo])
 async def resume_templates() -> list[ResumeTemplateInfo]:
     """List every selectable resume template for the frontend gallery (see
@@ -76,7 +83,10 @@ async def resume_templates() -> list[ResumeTemplateInfo]:
 
 
 @router.post("/upload", response_model=UploadResponse)
-async def upload_cv(file: UploadFile = File(...)) -> UploadResponse:
+async def upload_cv(
+    file: UploadFile = File(...),
+    user: UserPublic = Depends(get_approved_user),
+) -> UploadResponse:
     """Step 1 (one-time per CV): parse the document, extract text, convert
     to structured JSON (no AI - see cv_structurer.py), and cache everything
     under a generated file id so /tailor never has to re-parse or re-send
@@ -122,6 +132,7 @@ async def upload_cv(file: UploadFile = File(...)) -> UploadResponse:
 
     file_utils.save_cv_text(file_id, cv_text)
     file_utils.save_master_cv(file_id, master_cv)
+    file_utils.save_file_owner(file_id, user.id)
     file_utils.save_perf_stages(file_id, perf.snapshot())
 
     perf.log()
@@ -134,7 +145,10 @@ async def upload_cv(file: UploadFile = File(...)) -> UploadResponse:
 
 
 @router.post("/tailor", response_model=TailorResponse)
-async def tailor(payload: TailorRequest) -> TailorResponse:
+async def tailor(
+    payload: TailorRequest,
+    user: UserPublic = Depends(get_approved_user),
+) -> TailorResponse:
     """Steps 2-6: analyze the JD (no AI), match it against the cached
     structured CV (no AI), build the prompt, make the single OpenAI
     request, then validate/auto-fix the result (no AI)."""
@@ -153,6 +167,8 @@ async def tailor(payload: TailorRequest) -> TailorResponse:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown resume template '{payload.template_slug}'.",
         )
+
+    _require_file_owner(payload.file_id, user)
 
     master_cv = file_utils.load_master_cv(payload.file_id)
     if master_cv is None:
@@ -239,6 +255,7 @@ async def tailor(payload: TailorRequest) -> TailorResponse:
         main_stack=payload.main_stack.strip(),
         company_name=payload.company_name.strip(),
         generated_filename=generated_filename,
+        user_id=user.id,
     )
 
     perf.log()
@@ -255,13 +272,14 @@ async def tailor(payload: TailorRequest) -> TailorResponse:
 
 
 @router.get("/history", response_model=list[ResumeMetadata])
-async def resume_history() -> list[ResumeMetadata]:
+async def resume_history(user: UserPublic = Depends(get_approved_user)) -> list[ResumeMetadata]:
     """Resume-generation history (see app/db/models.py's ResumeRecord),
     most recent first."""
-    records = list_resume_records()
+    records = list_resume_records(user_id=user.id)
     slug_by_template_id = {t.id: t.slug for t in list_templates()}
     return [
         ResumeMetadata(
+            id=record.id,
             candidate_name=record.candidate_name,
             main_stack=record.main_stack,
             company_name=record.company_name,
@@ -308,7 +326,10 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
 
 
 @router.get("/preview/{file_id}")
-async def preview_resume_pdf(file_id: str) -> FileResponse:
+async def preview_resume_pdf(
+    file_id: str,
+    user: UserPublic = Depends(get_approved_user),
+) -> FileResponse:
     """Live in-app preview: renders the tailored resume with the exact same
     Jinja2 + Playwright pipeline used by /download, and serves it inline
     (Content-Disposition: inline) so the frontend can embed it directly in
@@ -316,6 +337,7 @@ async def preview_resume_pdf(file_id: str) -> FileResponse:
     downloaded PDF - unlike a hand-rolled HTML preview, it also correctly
     reflects the templates' print-only @page rules (margins, pagination,
     repeating headers) which only apply during PDF rendering."""
+    _require_file_owner(file_id, user)
     perf = PerfReport(label=f"preview:{file_id}")
     perf.seed(file_utils.load_perf_stages(file_id))
     pdf_path, record = await _render_and_cache_pdf(file_id, perf)
@@ -333,6 +355,7 @@ async def preview_resume_pdf(file_id: str) -> FileResponse:
 async def download_resume(
     file_id: str,
     format: str = Query("pdf", pattern="^(pdf|docx)$", description="'pdf' (default) or 'docx'"),
+    user: UserPublic = Depends(get_approved_user),
 ) -> FileResponse:
     """Steps 7-9: render the tailored content into the template selected at
     /tailor time (Jinja2 + Playwright -> PDF), and - only when
@@ -343,6 +366,7 @@ async def download_resume(
     `{Name}_{stack}_{company}/{Name}.{ext}` so Chrome can save it without
     a folder-picker dialog.
     """
+    _require_file_owner(file_id, user)
     perf = PerfReport(label=f"download:{file_id}:{format}")
     perf.seed(file_utils.load_perf_stages(file_id))
 
