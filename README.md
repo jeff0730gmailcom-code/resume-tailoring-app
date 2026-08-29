@@ -160,6 +160,12 @@ or `frontend/.env` (they are already gitignored).
    | `OPENAI_API_KEY` | your OpenAI key |
    | `OPENAI_MODEL` | `gpt-4o-mini` (recommended: faster/cheaper) |
    | `CORS_ORIGINS` | `*` |
+   | `JWT_SECRET` | a long random string (required for sign-in; generate one and keep it stable across deploys) |
+   | `GOOGLE_CLIENT_ID` | your Google OAuth client ID (only if you want Google Sign-In) |
+
+   Sign-in on Railway uses a **new empty database**. Local accounts (including Steve Jeff on your PC) do not exist there — register again on the live URL. The name **Steve Jeff** is still treated as administrator.
+
+   For Google Sign-In, add the Railway HTTPS URL under **Authorized JavaScript origins** in Google Cloud (e.g. `https://your-app.up.railway.app`).
 
 5. **Settings → Public Networking → Generate Domain**.
    Your app URL looks like `https://resume-tailor-ai-production.up.railway.app`.
@@ -185,6 +191,8 @@ When the health check at `/health` returns OK, open the public URL.
 | `OPENAI_API_KEY` | Your OpenAI API key |
 | `OPENAI_MODEL` | Model used for tailoring (default `gpt-4o-mini`) |
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins |
+| `JWT_SECRET` | Secret used to sign login tokens (required in production) |
+| `GOOGLE_CLIENT_ID` | Google Sign-In client ID |
 | `TEMP_STORAGE_DIR` | Directory for temporary uploaded/generated files |
 | `MAX_UPLOAD_SIZE_MB` | Max CV upload size |
 

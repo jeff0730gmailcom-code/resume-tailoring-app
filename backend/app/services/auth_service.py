@@ -42,7 +42,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 def create_access_token(user: User) -> str:
     secret = settings.jwt_secret.strip()
     if not secret:
-        raise AuthError("JWT_SECRET is not set in backend/.env.")
+        raise AuthError("JWT_SECRET is not set. Add it in Railway Variables (or backend/.env locally).")
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
     payload = {"sub": str(user.id), "email": user.email, "exp": expire}
     return jwt.encode(payload, secret, algorithm="HS256")
@@ -51,7 +51,7 @@ def create_access_token(user: User) -> str:
 def user_id_from_token(token: str) -> int:
     secret = settings.jwt_secret.strip()
     if not secret:
-        raise AuthError("JWT_SECRET is not set in backend/.env.")
+        raise AuthError("JWT_SECRET is not set. Add it in Railway Variables (or backend/.env locally).")
     try:
         payload = jwt.decode(token, secret, algorithms=["HS256"])
     except jwt.PyJWTError as exc:

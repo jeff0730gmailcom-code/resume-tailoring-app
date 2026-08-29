@@ -23,8 +23,15 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 def _auth_response(user) -> AuthResponse:
+    try:
+        token = create_access_token(user)
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     return AuthResponse(
-        token=create_access_token(user),
+        token=token,
         user=UserPublic(
             id=user.id,
             email=user.email,
