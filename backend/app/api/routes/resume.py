@@ -32,7 +32,7 @@ from pathlib import Path
 
 from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from app.api.deps import get_approved_user
 from app.core.config import settings
@@ -47,7 +47,13 @@ from app.services.docx_to_pdf import convert_to_docx
 from app.services.filename_generator import generate_resume_cv_stem, generate_resume_filename, generate_resume_folder_name
 from app.services.jd_analyzer import analyze_job_description
 from app.services.resume_matcher import match_resume_to_jd
-from app.services.resume_records import get_latest_resume_record, list_resume_records, save_resume_record
+from app.services.resume_records import (
+    get_latest_resume_record,
+    get_resume_record,
+    list_resume_records,
+    save_downloaded_cv,
+    save_resume_record,
+)
 from app.services.resume_validator import close_ats_gaps, validate_and_fix_resume
 from app.services.template_registry import get_template, get_template_by_id, list_templates
 from app.services.template_renderer import render_pdf
@@ -57,6 +63,20 @@ from app.utils.timing import PerfReport
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/resume", tags=["resume"])
+
+
+def _normalize_job_link(raw: str) -> str:
+    link = raw.strip()
+    if not link:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job link cannot be empty.")
+    if not (link.startswith("http://") or link.startswith("https://")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job link must start with http:// or https://",
+        )
+    if len(link) > 2000:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job link is too long.")
+    return link
 
 
 def _require_file_owner(file_id: str, user: UserPublic) -> None:
@@ -158,6 +178,7 @@ async def tailor(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Main technology stack cannot be empty.")
     if not payload.company_name.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target company name cannot be empty.")
+    job_link = _normalize_job_link(payload.job_link)
     if not payload.template_slug.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please select a resume template.")
 
@@ -256,6 +277,7 @@ async def tailor(
         company_name=payload.company_name.strip(),
         generated_filename=generated_filename,
         user_id=user.id,
+        job_link=job_link,
     )
 
     perf.log()
@@ -283,9 +305,11 @@ async def resume_history(user: UserPublic = Depends(get_approved_user)) -> list[
             candidate_name=record.candidate_name,
             main_stack=record.main_stack,
             company_name=record.company_name,
+            job_link=getattr(record, "job_link", "") or "",
             generated_filename=record.generated_filename,
             template_slug=slug_by_template_id.get(record.template_id, "unknown"),
             created_at=record.created_at.isoformat(),
+            cv_saved=bool(getattr(record, "cv_saved", False)),
         )
         for record in records
     ]
@@ -371,6 +395,7 @@ async def download_resume(
     perf.seed(file_utils.load_perf_stages(file_id))
 
     pdf_path, record = await _render_and_cache_pdf(file_id, perf)
+    save_downloaded_cv(file_id, pdf_path.read_bytes())
     zip_stem = generate_resume_folder_name(record.candidate_name, record.main_stack, record.company_name)
     cv_stem = generate_resume_cv_stem(record.candidate_name)
 
@@ -401,3 +426,27 @@ async def download_resume(
 
     perf.log()
     return response
+
+
+@router.get("/history/{record_id}/download")
+async def download_saved_resume(
+    record_id: int,
+    user: UserPublic = Depends(get_approved_user),
+) -> Response:
+    """Serve the PDF stored on download (see save_downloaded_cv)."""
+    record = get_resume_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity record not found.")
+    if record.user_id != user.id and user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this file.")
+    if not record.cv_saved or not record.cv_pdf:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This CV has not been saved yet. Download it once from the tailor page first.",
+        )
+    cv_stem = generate_resume_cv_stem(record.candidate_name)
+    return Response(
+        content=record.cv_pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{cv_stem}.pdf"'},
+    )

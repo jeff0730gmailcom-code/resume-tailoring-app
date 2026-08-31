@@ -217,8 +217,10 @@ export async function fetchMyActivity(): Promise<AdminUserActivity[]> {
     candidate_name: String(row.candidate_name ?? ""),
     main_stack: String(row.main_stack ?? ""),
     company_name: String(row.company_name ?? ""),
+    job_link: String(row.job_link ?? ""),
     generated_filename: String(row.generated_filename ?? ""),
     created_at: String(row.created_at ?? ""),
+    cv_saved: Boolean(row.cv_saved),
   }));
 }
 
@@ -290,6 +292,7 @@ export async function tailorResume(
   jobDescription: string,
   mainStack: string,
   companyName: string,
+  jobLink: string,
   templateSlug: string,
   includeCoverLetter = false,
   applicationQuestions: string[] = []
@@ -302,6 +305,7 @@ export async function tailorResume(
       job_description: jobDescription,
       main_stack: mainStack,
       company_name: companyName,
+      job_link: jobLink,
       template_slug: templateSlug,
       include_cover_letter: includeCoverLetter,
       application_questions: applicationQuestions,
@@ -350,6 +354,24 @@ export async function downloadResume(
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 2000);
   return { zipName };
+}
+
+export async function downloadSavedResume(recordId: number): Promise<void> {
+  const response = await apiFetch(`/api/resume/history/${recordId}/download`);
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  const blob = await response.blob();
+  const fileName = zipNameFromDisposition(response.headers.get("Content-Disposition")) || "resume.pdf";
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 function zipNameFromDisposition(header: string | null): string | null {

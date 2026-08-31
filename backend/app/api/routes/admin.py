@@ -32,8 +32,10 @@ def _row(user, records) -> AdminUserRow:
                 candidate_name=record.candidate_name,
                 main_stack=record.main_stack,
                 company_name=record.company_name,
+                job_link=getattr(record, "job_link", "") or "",
                 generated_filename=record.generated_filename,
                 created_at=activity_iso(record),
+                cv_saved=bool(getattr(record, "cv_saved", False)),
             )
             for record in records
         ],

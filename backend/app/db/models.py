@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -52,7 +52,10 @@ class ResumeRecord(Base):
     candidate_name: Mapped[str] = mapped_column(String(200), nullable=False)
     main_stack: Mapped[str] = mapped_column(String(200), nullable=False)
     company_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    job_link: Mapped[str] = mapped_column(Text, default="", nullable=False)
     generated_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    cv_pdf: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    cv_saved: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     # Reserved for auth - set on /tailor when the caller is signed in.
     user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)

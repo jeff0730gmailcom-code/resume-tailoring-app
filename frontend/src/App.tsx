@@ -52,6 +52,7 @@ function App() {
   const [jobDescription, setJobDescription] = useState("");
   const [mainStack, setMainStack] = useState("");
   const [companyName, setCompanyName] = useState("");
+  const [jobLink, setJobLink] = useState("");
   const [selectedTemplateSlug, setSelectedTemplateSlug] = useState<string | null>(null);
   const [includeCoverLetter, setIncludeCoverLetter] = useState(false);
   const [applicationQuestions, setApplicationQuestions] = useState<string[]>([]);
@@ -72,6 +73,7 @@ function App() {
     setJobDescription("");
     setMainStack("");
     setCompanyName("");
+    setJobLink("");
     setSelectedTemplateSlug(null);
     setIncludeCoverLetter(false);
     setApplicationQuestions([]);
@@ -150,7 +152,7 @@ function App() {
 
   async function handleGenerate() {
     setAttemptedGenerate(true);
-    if (!cv || !mainStack.trim() || !companyName.trim() || !selectedTemplateSlug) return;
+    if (!cv || !mainStack.trim() || !companyName.trim() || !jobLink.trim() || !selectedTemplateSlug) return;
     setIsGenerating(true);
     setGenerateError(null);
     setCoverLetter(null);
@@ -167,6 +169,7 @@ function App() {
         jobDescription,
         mainStack.trim(),
         companyName.trim(),
+        jobLink.trim(),
         selectedTemplateSlug,
         includeCoverLetter,
         applicationQuestions
@@ -189,6 +192,7 @@ function App() {
     jobDescription.trim().length > 0 &&
     mainStack.trim().length > 0 &&
     companyName.trim().length > 0 &&
+    (jobLink.trim().startsWith("http://") || jobLink.trim().startsWith("https://")) &&
     Boolean(selectedTemplateSlug) &&
     !isGenerating &&
     !isUploading;
@@ -323,6 +327,8 @@ function App() {
             onMainStackChange={setMainStack}
             companyName={companyName}
             onCompanyNameChange={setCompanyName}
+            jobLink={jobLink}
+            onJobLinkChange={setJobLink}
             showValidation={attemptedGenerate}
           />
           <div className="flex flex-col gap-2">

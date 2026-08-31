@@ -134,6 +134,7 @@ class TailorRequest(BaseModel):
     job_description: str
     main_stack: str = Field(description="Main technology stack for this application, e.g. 'Node.js' - used only for filename generation, never sent to the AI prompt")
     company_name: str = Field(description="Target company name for this application, e.g. 'Sequencer' - used only for filename generation, never sent to the AI prompt")
+    job_link: str = Field(description="URL of the job posting; stored with the resume record, never sent to the AI prompt")
     template_slug: str = Field(description="Selected resume template slug (see GET /api/resume/templates) - determines the layout the tailored content is rendered into on download")
     include_cover_letter: bool = Field(
         default=False,
@@ -190,9 +191,11 @@ class ResumeMetadata(BaseModel):
     candidate_name: str
     main_stack: str
     company_name: str
+    job_link: str = ""
     generated_filename: str
     template_slug: str
     created_at: str = Field(description="ISO 8601 UTC timestamp")
+    cv_saved: bool = False
 
 
 # --- Structured master-CV cache (see app/services/cv_structurer.py) --------
@@ -339,8 +342,10 @@ class AdminUserActivity(BaseModel):
     candidate_name: str
     main_stack: str
     company_name: str
+    job_link: str = ""
     generated_filename: str
     created_at: str
+    cv_saved: bool = False
 
 
 class AdminUserRow(BaseModel):

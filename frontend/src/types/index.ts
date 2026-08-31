@@ -128,8 +128,10 @@ export interface AdminUserActivity {
   candidate_name: string;
   main_stack: string;
   company_name: string;
+  job_link: string;
   generated_filename: string;
   created_at: string;
+  cv_saved: boolean;
 }
 
 export interface AdminUserRow {
