@@ -305,6 +305,17 @@ def _parse_job_header(header_lines: list[str]) -> tuple[str, str, str]:
         return first, second, dates
 
     without_dates = _FULL_DATE_RANGE_RE.sub("", content_lines[0]).strip(" |,-–—")
+    without_dates = " ".join(without_dates.split())
+
+    # A company+dates-only line (e.g. "Engenious January 2025 - Present")
+    # must never become the job title. Templates that show experience[0].title
+    # under the candidate's name would otherwise print the employer there.
+    if (
+        without_dates
+        and not _TITLE_KEYWORD_RE.search(without_dates)
+        and _looks_like_company_name(without_dates)
+    ):
+        return "", without_dates, dates
 
     piped = _split_piped_title_company(without_dates)
     if piped:
@@ -635,6 +646,11 @@ def clip_job_company(company: str, title: str = "", max_len: int = 60) -> str:
         return ""
     if _DUTY_START_RE.match(company):
         return ""
+    # Dates belong in the dates field. A "Company January 2025 - Present"
+    # leftover (common when PDF extraction glues employer + dates on one
+    # line) must not render as the company name beside the real dates.
+    company = _FULL_DATE_RANGE_RE.sub("", company).strip(" |/-–—,")
+    company = " ".join(company.split())
     company = _ACTION_VERB_RE.split(company, maxsplit=1)[0].strip(" |/-–—,")
     if _DUTY_START_RE.match(company) or len(company) > max_len:
         return ""
@@ -656,6 +672,45 @@ def _looks_like_company_name(text: str) -> bool:
     return raw.count(" ") <= 5 and not raw.endswith((".", ";"))
 
 
+def _looks_like_standalone_job_title(line: str) -> bool:
+    """True for a job-title line that sits ABOVE the company+dates line
+    (e.g. "Tech Lead Devops & Cloud Engineer" then "Engenious January
+    2025 - Present"). Date-bearing lines are job boundaries, not titles;
+    duty/bullet sentences are not titles either."""
+    raw = " ".join((line or "").split())
+    if not raw or len(raw) > 100:
+        return False
+    if BULLET_PREFIX_RE.match(raw) or _FULL_DATE_RANGE_RE.search(raw):
+        return False
+    if _DUTY_START_RE.match(raw) or not _TITLE_KEYWORD_RE.search(raw):
+        return False
+    if raw.endswith((".", ";", ",")):
+        return False
+    words = raw.replace("/", " ").replace("|", " ").replace("&", " ").split()
+    return 1 < len(words) <= 14 and raw.count(",") <= 1
+
+
+def _looks_like_company_date_header(line: str) -> bool:
+    """True for "Engenious January 2025 - Present": employer + date range
+    on one line, which must stay a header (not a bullet) when the title
+    is the line above it."""
+    raw = " ".join((line or "").split())
+    if not raw or not _FULL_DATE_RANGE_RE.search(raw):
+        return False
+    remainder = _FULL_DATE_RANGE_RE.sub("", raw).strip(" |,-–—")
+    remainder = " ".join(remainder.split())
+    return bool(remainder) and _looks_like_company_name(remainder)
+
+
+def _looks_like_trailing_job_header(line: str) -> bool:
+    """A title or company line that PDF extraction parked at the end of
+    the previous job because the next job's date line is the only
+    recognized boundary."""
+    if _looks_like_job_boundary(line):
+        return False
+    return _looks_like_standalone_job_title(line) or _looks_like_company_name(line)
+
+
 def _looks_like_job_boundary(line: str) -> bool:
     """True for a line that starts a new job entry inside the Experience
     section of a plain-text CV: contains a full date range and reads like
@@ -675,13 +730,13 @@ def _looks_like_job_boundary(line: str) -> bool:
 
 
 def _split_job_header_and_bullets(job_lines: list[str]) -> tuple[list[str], list[str]]:
-    """Split one job's raw lines (the boundary line first, see
-    _looks_like_job_boundary) into header line(s) and bullet lines.
+    """Split one job's raw lines into header line(s) and bullet lines.
 
-    The boundary line is always a header line. The line immediately after
-    it is ALSO treated as a header line when it looks like an employer
-    name or a short title — this catches "Title | Dates" then "Company"
-    and "Company | Dates" then "Title". Duty/bullet lines stay bullets.
+    The first line is always a header line. The line immediately after it
+    is also a header when it looks like an employer, a short title, or a
+    company+dates line — this catches "Title" then "Company Dates",
+    "Title | Dates" then "Company", and "Company | Dates" then "Title".
+    Duty/bullet lines stay bullets.
     """
     if not job_lines:
         return [], []
@@ -690,10 +745,13 @@ def _split_job_header_and_bullets(job_lines: list[str]) -> tuple[list[str], list
     if rest:
         nxt = rest[0].strip()
         if (
-            len(nxt) < 100
-            and not _FULL_DATE_RANGE_RE.search(nxt)
+            len(nxt) < 160
             and not BULLET_PREFIX_RE.match(nxt)
             and not _DUTY_START_RE.match(nxt)
+            and (
+                not _FULL_DATE_RANGE_RE.search(nxt)
+                or _looks_like_company_date_header(nxt)
+            )
         ):
             header.append(rest[0])
             rest = rest[1:]
@@ -746,7 +804,10 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
     text-based), and within the Experience section, splits jobs at each
     date-range-bearing header line (see _looks_like_job_boundary) rather
     than relying on bullet/numbering formatting, which plain extracted
-    text never preserves.
+    text never preserves. When the title sits on the line above a
+    company+dates boundary (a common PDF layout), that title is attached
+    to the new job rather than dropped or left as the previous job's last
+    bullet.
 
     Returns None (never raises) when no job entries could be confidently
     located, so structure_cv falls back to the raw-text AI path exactly
@@ -764,6 +825,7 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
     certifications_lines: list[str] = []
     jobs: list[list[str]] = []
     current_job: list[str] | None = None
+    pending_header_lines: list[str] = []
     section: str | None = None
 
     for line in lines:
@@ -774,6 +836,7 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
         if heading:
             section = heading
             current_job = None
+            pending_header_lines = []
             if not remainder:
                 continue
             line = remainder
@@ -794,13 +857,28 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
             certifications_lines.append(line)
         elif section == "experience":
             if _looks_like_job_boundary(line):
-                current_job = [line]
+                stolen: list[str] = []
+                if current_job:
+                    # Title (and a bare company name) sit on the line(s)
+                    # ABOVE "Company January 2025 - Present". The date line
+                    # is the only boundary, so those lines were appended to
+                    # the previous job; pull them back.
+                    while len(current_job) > 1 and _looks_like_trailing_job_header(current_job[-1]):
+                        stolen.append(current_job.pop())
+                    stolen.reverse()
+                elif pending_header_lines:
+                    stolen = [
+                        item
+                        for item in pending_header_lines
+                        if _looks_like_standalone_job_title(item) or _looks_like_company_name(item)
+                    ]
+                pending_header_lines = []
+                current_job = stolen + [line]
                 jobs.append(current_job)
             elif current_job is not None:
                 current_job.append(line)
-            # A stray line before any job boundary was found yet inside the
-            # Experience section (rare - e.g. an intro sentence) is dropped
-            # rather than guessed at.
+            elif _looks_like_standalone_job_title(line) or _looks_like_company_name(line):
+                pending_header_lines.append(line)
 
     if not jobs:
         return None

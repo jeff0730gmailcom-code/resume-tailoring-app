@@ -256,9 +256,9 @@ def _assemble_full_resume(
 
     Job title always comes from the master CV (cv_entry.title), never the
     AI's suggestion - see .cursor/rules/resume-tailoring-prompt-rules.mdc's
-    "use the master CV's job title for every experience entry" rule; the
-    AI-suggested title is only used as a last resort when the master CV's
-    own title couldn't be parsed at all.
+    "use the master CV's job title for every experience entry" rule. An
+    empty parsed title stays empty rather than substituting a JD-aligned
+    invention.
 
     Every job's bullets are padded/trimmed to exactly
     EXPERIENCE_BULLET_COUNT - every selectable template has exactly this
@@ -271,7 +271,7 @@ def _assemble_full_resume(
     for i, cv_entry in enumerate(master_cv.experience):
         if i < len(dynamic.experience):
             dyn_entry = dynamic.experience[i]
-            title = cv_entry.title or dyn_entry.title
+            title = cv_entry.title
             bullets = list(dict.fromkeys(dyn_entry.bullets or []))
         else:
             title = cv_entry.title
