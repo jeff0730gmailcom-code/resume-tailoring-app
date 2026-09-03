@@ -1,4 +1,5 @@
 """Application configuration loaded from environment variables."""
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -50,6 +51,8 @@ class Settings(BaseSettings):
     # SQLite database - resume templates + resume-generation history (see
     # app/db/models.py). A single file, created automatically on startup
     # (app/db/session.init_db()) - no separate DB server to run.
+    # Relative paths are under backend/. On Railway, if a volume is mounted,
+    # the file is stored on that volume instead so deploys do not wipe users.
     database_dir: str = "data"
     database_filename: str = "app.db"
 
@@ -125,13 +128,30 @@ class Settings(BaseSettings):
 
     @property
     def database_path(self) -> Path:
-        path = _BACKEND_DIR / self.database_dir
+        path = _resolve_database_dir(self.database_dir)
         path.mkdir(parents=True, exist_ok=True)
         return path / self.database_filename
 
     @property
     def database_url(self) -> str:
         return f"sqlite:///{self.database_path.as_posix()}"
+
+
+def _resolve_database_dir(database_dir: str) -> Path:
+    """Directory that holds app.db.
+
+    Absolute DATABASE_DIR always wins. Otherwise a Railway volume
+    (RAILWAY_VOLUME_MOUNT_PATH) is used when present, so GitHub deploys
+    keep users and activity. Locally that env var is unset, so the file
+    stays at backend/data/app.db.
+    """
+    configured = Path(database_dir)
+    if configured.is_absolute():
+        return configured
+    volume = (os.getenv("RAILWAY_VOLUME_MOUNT_PATH") or "").strip()
+    if volume:
+        return Path(volume)
+    return _BACKEND_DIR / configured
 
 
 settings = Settings()

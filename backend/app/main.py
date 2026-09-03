@@ -63,6 +63,7 @@ def _log_active_config() -> None:
         f"OPENAI_API_KEY set?............. {'yes' if settings.openai_api_key else 'NO - tailoring will fail'}",
         f"JWT_SECRET set?................. {'yes' if settings.jwt_secret.strip() else 'NO - sign-in will fail'}",
         f"GOOGLE_CLIENT_ID set?........... {'yes' if settings.google_client_id.strip() else 'no (email/password only)'}",
+        f"DATABASE_PATH................... {settings.database_path}",
         f"TAILORING_MODE.................. {settings.tailoring_mode}",
         f"TAILORING_TIME_BUDGET_SECONDS... {settings.tailoring_time_budget_seconds}",
         "=========================================================",

@@ -163,14 +163,21 @@ or `frontend/.env` (they are already gitignored).
    | `JWT_SECRET` | a long random string (required for sign-in; generate one and keep it stable across deploys) |
    | `GOOGLE_CLIENT_ID` | your Google OAuth client ID (only if you want Google Sign-In) |
 
-   Sign-in on Railway uses a **new empty database**. Local accounts (including Steve Jeff on your PC) do not exist there — register again on the live URL. The name **Steve Jeff** is still treated as administrator.
-
    For Google Sign-In, add the Railway HTTPS URL under **Authorized JavaScript origins** in Google Cloud (e.g. `https://your-app.up.railway.app`).
 
-5. **Settings → Public Networking → Generate Domain**.
+5. **Attach a volume** so the SQLite database survives GitHub deploys. Without this, every deploy starts with an empty database (users and activity gone).
+
+   1. Open the Railway service → **Volumes** → **Add Volume**.
+   2. Set the mount path to `/data` (leave the default if Railway already fills `RAILWAY_VOLUME_MOUNT_PATH`).
+   3. Redeploy once. Railway injects `RAILWAY_VOLUME_MOUNT_PATH`; the app then stores `app.db` on that volume instead of the container disk.
+   4. Keep `JWT_SECRET` unchanged across deploys.
+
+   The volume is empty the first time you add it (Railway cannot copy your PC’s `backend/data/app.db`). After that, users, activity, and saved CVs stay. Locally, git push still never touches `backend/data/app.db`.
+
+6. **Settings → Public Networking → Generate Domain**.
    Your app URL looks like `https://resume-tailor-ai-production.up.railway.app`.
-6. **Settings → Resources**: set memory to **2 GB** (Chromium needs it).
-7. **Settings → Usage**: set a monthly spending limit so a runaway deploy
+7. **Settings → Resources**: set memory to **2 GB** (Chromium needs it).
+8. **Settings → Usage**: set a monthly spending limit so a runaway deploy
    cannot surprise-bill you.
 
 The first build takes several minutes (Node build + Playwright image).
@@ -178,8 +185,7 @@ When the health check at `/health` returns OK, open the public URL.
 
 ### 3. When you grow past MVP
 
-- Add a **PostgreSQL** plugin in the same Railway project and switch off SQLite.
-- Attach a **volume** if you need uploaded files to survive redeploys.
+- Add a **PostgreSQL** plugin in the same Railway project if you outgrow SQLite.
 - Point a custom domain at the service from Railway's Networking settings.
 
 ## Environment variables
@@ -193,6 +199,7 @@ When the health check at `/health` returns OK, open the public URL.
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins |
 | `JWT_SECRET` | Secret used to sign login tokens (required in production) |
 | `GOOGLE_CLIENT_ID` | Google Sign-In client ID |
+| `DATABASE_DIR` | Folder for `app.db` (relative = under `backend/`; absolute path supported). On Railway a mounted volume is used automatically. |
 | `TEMP_STORAGE_DIR` | Directory for temporary uploaded/generated files |
 | `MAX_UPLOAD_SIZE_MB` | Max CV upload size |
 
