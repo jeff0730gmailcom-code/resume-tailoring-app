@@ -73,8 +73,10 @@ _FULL_DATE_RANGE_RE = re.compile(
     rf"{_YEAR_SIDE_RE}\s*(?:[-–—]|to)\s*(?:{_YEAR_SIDE_RE}|present|current|now)",
     re.IGNORECASE,
 )
+# Bare "2", "2 of 3", "Page 2", "/ Page 2" - PDF page labels that must never
+# become a fake employer or start a job (see Goran "Page 2" before Q Agency).
 _PAGE_NOISE_RE = re.compile(
-    r"^(?:-+\s*)?\d{1,3}(?:\s+of\s+\d{1,3})?(?:\s*-+)?$",
+    r"^(?:[\/|.\-–—]*\s*)?(?:page\s+)?\d{1,3}(?:\s*(?:of|/)\s*\d{1,3})?(?:\s*[\/|.\-–—]*)?$",
     re.IGNORECASE,
 )
 
@@ -293,7 +295,11 @@ def _parse_job_header(header_lines: list[str]) -> tuple[str, str, str]:
         # "Company | Dates" then "Title" layout some plain-text/PDF
         # resumes use, without disturbing the default for every other CV.
         if _TITLE_KEYWORD_RE.search(second) and not _TITLE_KEYWORD_RE.search(first):
-            return second, first, dates
+            piped = _split_piped_title_company(second)
+            if piped:
+                return piped[0], piped[1], dates
+            company = first if _looks_like_company_name(first) else ""
+            return second, company, dates
         # Company sits on its own next line — keep the whole first line as
         # the title (including 'Title | specialty') rather than treating a
         # specialization as the employer.
@@ -661,13 +667,18 @@ def clip_job_company(company: str, title: str = "", max_len: int = 60) -> str:
 
 def _looks_like_company_name(text: str) -> bool:
     """True for a short employer line sitting under a title/dates header
-    (e.g. "TechNova", "GlobalSoft Systems") — not a duty sentence or bullet."""
+    (e.g. "TechNova", "GlobalSoft Systems") — not a duty sentence, bullet,
+    page marker, or wrapped leftover word from the previous bullet."""
     raw = " ".join((text or "").split())
     if not raw or len(raw) > 60:
+        return False
+    if _PAGE_NOISE_RE.match(raw):
         return False
     if BULLET_PREFIX_RE.match(raw) or _FULL_DATE_RANGE_RE.search(raw):
         return False
     if _DUTY_START_RE.match(raw) or _TITLE_KEYWORD_RE.search(raw):
+        return False
+    if raw[:1].islower():
         return False
     return raw.count(" ") <= 5 and not raw.endswith((".", ";"))
 
@@ -702,13 +713,37 @@ def _looks_like_company_date_header(line: str) -> bool:
     return bool(remainder) and _looks_like_company_name(remainder)
 
 
+def _looks_like_combined_job_header(line: str) -> bool:
+    """True for a one-line "Title | Company | Dates" / "Title | Dates"
+    header. That line must stay in the header even when a junk fragment
+    (page label, wrapped word) was prepended as the first job line."""
+    raw = " ".join((line or "").split())
+    if not raw or not _FULL_DATE_RANGE_RE.search(raw):
+        return False
+    remainder = _FULL_DATE_RANGE_RE.sub("", raw).strip(" |,-–—")
+    remainder = " ".join(remainder.split())
+    return bool(remainder) and bool(_TITLE_KEYWORD_RE.search(remainder) or "|" in raw)
+
+
+def _looks_like_trailing_employer(line: str) -> bool:
+    """Employer sitting above the next job's date line. Stricter than
+    _looks_like_company_name so wrapped bullet leftovers ("architecture",
+    "Kubernetes") are not stolen from the previous job."""
+    if not _looks_like_company_name(line):
+        return False
+    raw = " ".join(line.split())
+    if " " in raw or raw.isupper():
+        return True
+    return bool(re.match(r"^[A-Z][a-zA-Z]*[A-Z][a-zA-Z]+$", raw))
+
+
 def _looks_like_trailing_job_header(line: str) -> bool:
     """A title or company line that PDF extraction parked at the end of
     the previous job because the next job's date line is the only
     recognized boundary."""
-    if _looks_like_job_boundary(line):
+    if _looks_like_job_boundary(line) or _PAGE_NOISE_RE.match(line.strip()):
         return False
-    return _looks_like_standalone_job_title(line) or _looks_like_company_name(line)
+    return _looks_like_standalone_job_title(line) or _looks_like_trailing_employer(line)
 
 
 def _looks_like_job_boundary(line: str) -> bool:
@@ -751,6 +786,7 @@ def _split_job_header_and_bullets(job_lines: list[str]) -> tuple[list[str], list
             and (
                 not _FULL_DATE_RANGE_RE.search(nxt)
                 or _looks_like_company_date_header(nxt)
+                or _looks_like_combined_job_header(nxt)
             )
         ):
             header.append(rest[0])
