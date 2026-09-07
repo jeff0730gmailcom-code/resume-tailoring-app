@@ -28,8 +28,8 @@ export default function ApplicationAnswersPreview({
     hasResume && !isGenerating && answers.length === 0 && lastGenerateHadQuestions;
 
   return (
-    <section className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold text-slate-800">{sectionNumber}. Application answers</h2>
+    <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h2 className="text-base font-semibold text-slate-900">{sectionNumber}. Application answers</h2>
       {showPlaceholder && (
         <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-400">
           Answers to your application questions will appear here after you generate.

@@ -133,7 +133,7 @@ export default function ResumePreview({
               type="button"
               disabled={savingFormat !== null}
               onClick={() => void handleSave("pdf")}
-              className="flex-1 rounded-lg bg-slate-900 px-4 py-3 text-center font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="flex-1 rounded-lg bg-brand px-4 py-3 text-center font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
               {savingFormat === "pdf" ? "Saving PDF…" : "Download PDF"}
             </button>

@@ -9,10 +9,10 @@ interface UsersPageProps {
 }
 
 function statusLabel(user: AdminUserRow): { text: string; className: string } {
-  if (!user.is_active) return { text: "Blocked", className: "bg-red-100 text-red-800" };
-  if (user.role === "admin") return { text: "Administrator", className: "bg-navy text-gold-200" };
-  if (!user.is_approved) return { text: "Waiting", className: "bg-amber-100 text-amber-900" };
-  return { text: "Allowed", className: "bg-green-100 text-green-800" };
+  if (!user.is_active) return { text: "Blocked", className: "bg-red-50 text-red-700" };
+  if (user.role === "admin") return { text: "Administrator", className: "bg-brand-50 text-brand-600" };
+  if (!user.is_approved) return { text: "Waiting", className: "bg-amber-50 text-amber-800" };
+  return { text: "Allowed", className: "bg-emerald-50 text-emerald-800" };
 }
 
 export default function UsersPage({ currentUser, onViewActivity }: UsersPageProps) {
@@ -63,17 +63,16 @@ export default function UsersPage({ currentUser, onViewActivity }: UsersPageProp
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="font-sans text-[11px] font-semibold tracking-[0.35em] text-navy-600">HOUSE LEDGER</p>
-        <h2 className="font-display text-3xl text-navy">Members</h2>
-        <p className="mt-1 font-suit text-lg italic text-navy-700">
-          Allow new registrations, open a member&apos;s activity, or delete an account.
+        <h2 className="text-3xl font-bold tracking-tight text-slate-900">Members</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Allow new registrations, open a member&apos;s applications, or delete an account.
         </p>
       </div>
 
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
 
       {users.length === 0 && !error ? (
-        <p className="font-sans text-sm text-navy-600">No members yet.</p>
+        <p className="text-sm text-slate-500">No members yet.</p>
       ) : null}
 
       {users.map((user) => {
@@ -81,17 +80,17 @@ export default function UsersPage({ currentUser, onViewActivity }: UsersPageProp
         const isSelf = user.id === currentUser.id;
         const canAllow = !user.is_approved || !user.is_active;
         return (
-          <article key={user.id} className="border border-navy/10 bg-white/90 p-5 shadow-sm">
+          <article key={user.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="font-display text-2xl text-navy">{user.name}</h3>
-                <p className="font-sans text-sm text-navy-600">{user.email}</p>
-                <p className="mt-1 font-sans text-xs text-navy-600">Joined {formatWhen(user.created_at)}</p>
+                <h3 className="text-lg font-semibold text-slate-900">{user.name}</h3>
+                <p className="text-sm text-slate-500">{user.email}</p>
+                <p className="mt-1 text-xs text-slate-400">Joined {formatWhen(user.created_at)}</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}>{badge.text}</span>
-                <span className="font-sans text-xs text-navy-600">
-                  {user.resume_count} tailor job{user.resume_count === 1 ? "" : "s"}
+                <span className="text-xs text-slate-500">
+                  {user.resume_count} application{user.resume_count === 1 ? "" : "s"}
                 </span>
               </div>
             </div>
@@ -100,16 +99,16 @@ export default function UsersPage({ currentUser, onViewActivity }: UsersPageProp
               <button
                 type="button"
                 onClick={() => onViewActivity(user.id)}
-                className="border border-navy px-3 py-1.5 font-sans text-xs font-semibold tracking-wide text-navy"
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
-                View activity
+                View applications
               </button>
               {canAllow && !isSelf ? (
                 <button
                   type="button"
                   disabled={busyId === user.id}
                   onClick={() => void patch(user.id, { is_approved: true, is_active: true })}
-                  className="bg-navy px-3 py-1.5 font-sans text-xs font-semibold tracking-wide text-gold-200 disabled:opacity-50"
+                  className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
                 >
                   Allow
                 </button>
@@ -119,7 +118,7 @@ export default function UsersPage({ currentUser, onViewActivity }: UsersPageProp
                   type="button"
                   disabled={busyId === user.id}
                   onClick={() => void patch(user.id, { is_active: false })}
-                  className="border border-red-700 px-3 py-1.5 font-sans text-xs font-semibold tracking-wide text-red-800 disabled:opacity-50"
+                  className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
                 >
                   Block
                 </button>
@@ -129,7 +128,7 @@ export default function UsersPage({ currentUser, onViewActivity }: UsersPageProp
                   type="button"
                   disabled={busyId === user.id}
                   onClick={() => void patch(user.id, { is_active: true, is_approved: true })}
-                  className="border border-navy px-3 py-1.5 font-sans text-xs font-semibold tracking-wide text-navy disabled:opacity-50"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
                   Unblock
                 </button>
@@ -139,7 +138,7 @@ export default function UsersPage({ currentUser, onViewActivity }: UsersPageProp
                   type="button"
                   disabled={busyId === user.id}
                   onClick={() => void remove(user)}
-                  className="border border-red-700 bg-red-50 px-3 py-1.5 font-sans text-xs font-semibold tracking-wide text-red-800 disabled:opacity-50"
+                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 disabled:opacity-50"
                 >
                   Delete
                 </button>

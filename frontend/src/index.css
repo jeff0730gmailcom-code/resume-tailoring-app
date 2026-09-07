@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+body {
+  @apply bg-slate-50 font-sans text-slate-800 antialiased;
+}
+
 .suit-pinstripe {
   background-color: #f4efe6;
   background-image:

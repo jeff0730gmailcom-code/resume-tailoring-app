@@ -58,7 +58,7 @@ export default function ApplicationQuestionsInput({
           type="button"
           disabled={disabled || draft.trim().length === 0 || questions.length >= MAX_QUESTIONS}
           onClick={addQuestion}
-          className="rounded-lg bg-slate-900 px-4 py-3 font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="rounded-lg bg-brand px-4 py-3 font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           Add question
         </button>

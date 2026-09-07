@@ -4,6 +4,11 @@ export default {
   theme: {
     extend: {
       colors: {
+        brand: {
+          DEFAULT: "#6366f1",
+          600: "#4f46e5",
+          50: "#eef2ff",
+        },
         navy: {
           DEFAULT: "#0b1220",
           900: "#070c16",
@@ -19,9 +24,9 @@ export default {
         ivory: "#f4efe4",
       },
       fontFamily: {
-        display: ['"Playfair Display"', "Georgia", "serif"],
-        suit: ['"Cormorant Garamond"', "Georgia", "serif"],
-        sans: ['"Source Sans 3"', "system-ui", "sans-serif"],
+        display: ['Inter', "system-ui", "sans-serif"],
+        suit: ['Inter', "system-ui", "sans-serif"],
+        sans: ['Inter', "system-ui", "sans-serif"],
       },
     },
   },

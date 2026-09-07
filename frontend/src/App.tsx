@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import ActivityHistory from "./components/ActivityHistory";
 import ApplicationAnswersPreview from "./components/ApplicationAnswersPreview";
 import ApplicationQuestionsInput from "./components/ApplicationQuestionsInput";
@@ -27,10 +27,10 @@ import { userCanUseApp } from "./types";
 
 function generateButtonLabel(includeCoverLetter: boolean, hasQuestions: boolean, isGenerating: boolean): string {
   if (isGenerating) {
-    if (includeCoverLetter && hasQuestions) return "Generating resume, cover letter & answers…";
-    if (includeCoverLetter) return "Generating resume & cover letter…";
-    if (hasQuestions) return "Generating resume & answers…";
-    return "Generating…";
+    if (includeCoverLetter && hasQuestions) return "Generating resume, cover letter & answers...";
+    if (includeCoverLetter) return "Generating resume & cover letter...";
+    if (hasQuestions) return "Generating resume & answers...";
+    return "Generating...";
   }
   if (includeCoverLetter && hasQuestions) return "Generate Resume, Cover Letter & Answers";
   if (includeCoverLetter) return "Generate Resume & Cover Letter";
@@ -201,8 +201,8 @@ function App() {
 
   if (!authReady) {
     return (
-      <div className="suit-pinstripe flex min-h-screen items-center justify-center">
-        <p className="font-suit text-2xl italic text-navy-700">Opening the atelier…</p>
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <p className="text-sm text-slate-500">Loading...</p>
       </div>
     );
   }
@@ -218,7 +218,7 @@ function App() {
   const signedInUser = user;
   const isAdmin = signedInUser.role === "admin";
   const viewingOtherActivity = page === "activity" && activityUserId != null && activityUserId !== signedInUser.id;
-  const shellWidth = page === "users" || page === "activity" ? "max-w-5xl" : "max-w-3xl";
+  const shellWidth = page === "users" || page === "activity" ? "max-w-7xl" : "max-w-4xl";
 
   function openMyActivity() {
     setActivityUserId(signedInUser.id);
@@ -230,64 +230,38 @@ function App() {
     setPage("activity");
   }
 
+  const tabClass = (active: boolean) =>
+    `rounded-lg px-3.5 py-2 text-sm font-medium ${
+      active ? "border border-slate-200 bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:bg-white/80 hover:text-slate-800"
+    }`;
+
   return (
-    <div className="min-h-screen bg-ivory">
-      <header className="border-b-2 border-gold bg-navy">
-        <div className={`mx-auto flex ${shellWidth} items-center justify-between px-4 py-4`}>
+    <div className="min-h-screen bg-slate-50">
+      <header className="border-b border-slate-200 bg-white">
+        <div className={`mx-auto flex ${shellWidth} items-center justify-between px-4 py-3`}>
           <div>
-            <p className="font-sans text-[10px] font-semibold tracking-[0.35em] text-gold-200">ATELIER</p>
-            <h1 className="font-display text-xl font-semibold text-ivory">Resume Tailor</h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-brand">Resume Tailor</p>
+            <h1 className="text-lg font-semibold text-slate-900">
+              {page === "activity" ? "Applications" : page === "users" ? "Members" : "Create application"}
+            </h1>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setPage("work")}
-              className={`px-3 py-1.5 font-sans text-xs font-semibold tracking-wide ${
-                page === "work" ? "bg-gold-200 text-navy" : "border border-gold-200 text-gold-200 hover:bg-navy-800"
-              }`}
-            >
-              Atelier
-            </button>
-            <button
-              type="button"
-              onClick={openMyActivity}
-              className={`px-3 py-1.5 font-sans text-xs font-semibold tracking-wide ${
-                page === "activity" && !viewingOtherActivity
-                  ? "bg-gold-200 text-navy"
-                  : "border border-gold-200 text-gold-200 hover:bg-navy-800"
-              }`}
-            >
-              My activity
-            </button>
-            {isAdmin ? (
-              <button
-                type="button"
-                onClick={() => setPage("users")}
-                className={`px-3 py-1.5 font-sans text-xs font-semibold tracking-wide ${
-                  page === "users" || viewingOtherActivity
-                    ? "bg-gold-200 text-navy"
-                    : "border border-gold-200 text-gold-200 hover:bg-navy-800"
-                }`}
-              >
-                Users
-              </button>
-            ) : null}
             <span
-              className={`rounded-full px-3 py-1 text-xs font-medium ${
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                 apiStatus === "online"
-                  ? "bg-green-100 text-green-800"
+                  ? "bg-emerald-50 text-emerald-700"
                   : apiStatus === "offline"
-                    ? "bg-red-100 text-red-700"
-                    : "bg-navy-700 text-gold-200"
+                    ? "bg-red-50 text-red-700"
+                    : "bg-slate-100 text-slate-500"
               }`}
             >
-              API: {apiStatus}
+              API {apiStatus}
             </span>
-            <span className="hidden font-suit text-lg text-gold-200 sm:inline">{signedInUser.name}</span>
+            <span className="hidden text-sm text-slate-600 sm:inline">{signedInUser.name}</span>
             <button
               type="button"
               onClick={handleSignOut}
-              className="border border-gold-200 px-3 py-1.5 font-sans text-xs font-semibold tracking-wide text-gold-200 hover:bg-navy-800"
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Sign out
             </button>
@@ -295,17 +269,32 @@ function App() {
         </div>
       </header>
 
+      <div className={`mx-auto ${shellWidth} px-4 py-6`}>
+        <div className="mb-6 flex flex-wrap gap-2">
+          <button type="button" onClick={() => setPage("work")} className={tabClass(page === "work")}>
+            Create application
+          </button>
+          <button type="button" onClick={openMyActivity} className={tabClass(page === "activity" && !viewingOtherActivity)}>
+            Applications
+          </button>
+          {isAdmin ? (
+            <button type="button" onClick={() => setPage("users")} className={tabClass(page === "users" || viewingOtherActivity)}>
+              Users
+            </button>
+          ) : null}
+        </div>
+
       {page === "users" && isAdmin ? (
-        <main className={`mx-auto ${shellWidth} px-4 py-10`}>
+        <main>
           <UsersPage currentUser={signedInUser} onViewActivity={openMemberActivity} />
         </main>
       ) : page === "activity" ? (
-        <main className={`mx-auto ${shellWidth} px-4 py-10`}>
+        <main>
           {viewingOtherActivity ? (
             <button
               type="button"
               onClick={() => setPage("users")}
-              className="mb-6 font-sans text-xs font-semibold tracking-wide text-navy underline"
+              className="mb-4 text-sm font-medium text-brand hover:underline"
             >
               Back to members
             </button>
@@ -313,14 +302,17 @@ function App() {
           <ActivityHistory currentUser={signedInUser} memberId={viewingOtherActivity ? activityUserId : null} />
         </main>
       ) : (
-      <main className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-10">
-        <section className="flex flex-col gap-4">
-          <h2 className="text-lg font-semibold text-slate-800">1. Upload master CV</h2>
+      <main className="flex flex-col gap-6">
+        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-900">1. Upload master CV</h2>
+          <p className="mb-4 mt-1 text-sm text-slate-500">PDF or Word file. This is the source of identity facts such as titles and employers.</p>
           <CvUpload onFileSelected={handleFileSelected} fileName={cv?.fileName} isUploading={isUploading} error={uploadError} />
         </section>
 
-        <section className="flex flex-col gap-4">
-          <h2 className="text-lg font-semibold text-slate-800">2. Paste job description</h2>
+        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-900">2. Paste job description</h2>
+          <p className="mb-4 mt-1 text-sm text-slate-500">Add the posting, stack, company, and a template.</p>
+          <div className="flex flex-col gap-4">
           <JobDescriptionInput value={jobDescription} onChange={setJobDescription} />
           <TailoringDetailsInput
             mainStack={mainStack}
@@ -351,21 +343,22 @@ function App() {
             onChange={setApplicationQuestions}
             disabled={isGenerating || isUploading}
           />
+          </div>
         </section>
 
         <section className="flex flex-col gap-2">
           <button
             disabled={!canGenerate}
             onClick={handleGenerate}
-            className="w-full bg-navy px-4 py-3 font-sans font-semibold tracking-wide text-gold-200 transition-colors hover:bg-navy-800 disabled:cursor-not-allowed disabled:bg-navy-600 disabled:text-gold-200/50"
+            className="w-full rounded-xl bg-brand px-4 py-3 font-semibold text-white shadow-sm transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {generateButtonLabel(includeCoverLetter, applicationQuestions.length > 0, isGenerating)}
           </button>
           {generateError && <p className="text-sm text-red-600">{generateError}</p>}
         </section>
 
-        <section className="flex flex-col gap-4">
-          <h2 className="text-lg font-semibold text-slate-800">3. Preview &amp; download</h2>
+        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-base font-semibold text-slate-900">3. Preview &amp; download</h2>
           <ResumePreview
             resume={resume}
             fileId={cv?.fileId ?? null}
@@ -391,6 +384,7 @@ function App() {
         />
       </main>
       )}
+      </div>
     </div>
   );
 }

@@ -79,7 +79,7 @@ export default function AuthPage({ onSignedIn }: AuthPageProps) {
           },
         });
         window.google.accounts.id.renderButton(googleButtonRef.current, {
-          theme: "filled_black",
+          theme: "outline",
           size: "large",
           text: "continue_with",
           shape: "rectangular",
@@ -122,43 +122,43 @@ export default function AuthPage({ onSignedIn }: AuthPageProps) {
     }
   }
 
+  const fieldClass =
+    "rounded-lg border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20";
+
   return (
-    <div className="suit-pinstripe min-h-screen text-navy">
+    <div className="min-h-screen bg-slate-50 text-slate-800">
       <div className="mx-auto grid min-h-screen max-w-6xl lg:grid-cols-2">
         <section className="flex flex-col justify-between px-8 py-10 sm:px-14 sm:py-16">
-          <p className="font-sans text-[11px] font-semibold tracking-[0.42em] text-navy-600">ATELIER · PRIVATE ACCESS</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-brand">Resume Tailor</p>
           <div className="max-w-md">
-            <p className="font-suit text-xl italic text-navy-700">Cut to the role. Fitted to the firm.</p>
-            <h1 className="mt-4 font-display text-5xl font-semibold leading-tight text-navy sm:text-6xl">Resume Tailor</h1>
-            <div className="suit-gold-rule my-8 max-w-xs" />
-            <p className="font-suit text-2xl leading-snug text-navy-700">
-              A bespoke house for your CV. Sign in to upload a master résumé, then have it tailored — navy, gold, and ready for the next interview.
+            <h1 className="text-5xl font-bold leading-tight text-slate-900 sm:text-6xl">Fit the resume to the role.</h1>
+            <p className="mt-6 text-lg leading-relaxed text-slate-600">
+              Sign in to upload a master CV, pick a template, and generate a tailored application.
             </p>
           </div>
-          <p className="font-sans text-xs tracking-widest text-navy-600">HAND-CUT · ONE MASTER CV · MANY FITS</p>
+          <p className="text-xs text-slate-400">Create application · Applications · Templates</p>
         </section>
 
-        <section className="flex items-center justify-center px-6 py-12 text-navy sm:px-12">
-          <div className="w-full max-w-sm border border-navy/10 bg-white/90 p-8 shadow-sm">
-            <p className="font-sans text-[11px] font-semibold tracking-[0.35em] text-navy-600">MEMBERS&apos; ENTRANCE</p>
-            <h2 className="mt-2 font-display text-3xl text-navy">
-              {mode === "login" ? "Sign in" : "Open an account"}
+        <section className="flex items-center justify-center px-6 py-12 sm:px-12">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+            <h2 className="text-2xl font-semibold text-slate-900">
+              {mode === "login" ? "Sign in" : "Create an account"}
             </h2>
-            <p className="mt-2 font-suit text-lg italic text-navy-600">
+            <p className="mt-2 text-sm text-slate-500">
               {mode === "login"
-                ? "Return to the cutting room."
+                ? "Return to your applications."
                 : "An administrator must allow new members before they can tailor resumes."}
             </p>
 
-            <div className="mt-8 flex rounded-sm border border-navy/15 p-1">
+            <div className="mt-8 flex rounded-lg border border-slate-200 p-1">
               <button
                 type="button"
                 onClick={() => {
                   setMode("login");
                   setError(null);
                 }}
-                className={`flex-1 py-2 font-sans text-sm font-semibold tracking-wide ${
-                  mode === "login" ? "bg-navy text-ivory" : "text-navy-700"
+                className={`flex-1 rounded-md py-2 text-sm font-medium ${
+                  mode === "login" ? "bg-brand text-white" : "text-slate-600"
                 }`}
               >
                 Sign in
@@ -169,8 +169,8 @@ export default function AuthPage({ onSignedIn }: AuthPageProps) {
                   setMode("register");
                   setError(null);
                 }}
-                className={`flex-1 py-2 font-sans text-sm font-semibold tracking-wide ${
-                  mode === "register" ? "bg-navy text-ivory" : "text-navy-700"
+                className={`flex-1 rounded-md py-2 text-sm font-medium ${
+                  mode === "register" ? "bg-brand text-white" : "text-slate-600"
                 }`}
               >
                 Register
@@ -184,37 +184,31 @@ export default function AuthPage({ onSignedIn }: AuthPageProps) {
             ) : null}
 
             <div className="my-6 flex items-center gap-3">
-              <div className="h-px flex-1 bg-navy/15" />
-              <span className="font-sans text-[10px] tracking-[0.25em] text-navy-600">OR BY EMAIL</span>
-              <div className="h-px flex-1 bg-navy/15" />
+              <div className="h-px flex-1 bg-slate-200" />
+              <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Or by email</span>
+              <div className="h-px flex-1 bg-slate-200" />
             </div>
 
             <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
               {mode === "register" ? (
                 <label className="flex flex-col gap-1.5">
-                  <span className="font-sans text-xs font-semibold tracking-wide text-navy-700">Full name</span>
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    autoComplete="name"
-                    required
-                    className="border border-navy/20 bg-white px-3 py-2.5 font-sans text-sm outline-none focus:border-gold"
-                  />
+                  <span className="text-xs font-medium text-slate-600">Full name</span>
+                  <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required className={fieldClass} />
                 </label>
               ) : null}
               <label className="flex flex-col gap-1.5">
-                <span className="font-sans text-xs font-semibold tracking-wide text-navy-700">Email</span>
+                <span className="text-xs font-medium text-slate-600">Email</span>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   autoComplete="email"
                   required
-                  className="border border-navy/20 bg-white px-3 py-2.5 font-sans text-sm outline-none focus:border-gold"
+                  className={fieldClass}
                 />
               </label>
               <label className="flex flex-col gap-1.5">
-                <span className="font-sans text-xs font-semibold tracking-wide text-navy-700">Password</span>
+                <span className="text-xs font-medium text-slate-600">Password</span>
                 <input
                   type="password"
                   value={password}
@@ -222,12 +216,12 @@ export default function AuthPage({ onSignedIn }: AuthPageProps) {
                   autoComplete={mode === "login" ? "current-password" : "new-password"}
                   minLength={mode === "register" ? 8 : undefined}
                   required
-                  className="border border-navy/20 bg-white px-3 py-2.5 font-sans text-sm outline-none focus:border-gold"
+                  className={fieldClass}
                 />
               </label>
               {mode === "register" ? (
                 <label className="flex flex-col gap-1.5">
-                  <span className="font-sans text-xs font-semibold tracking-wide text-navy-700">Confirm password</span>
+                  <span className="text-xs font-medium text-slate-600">Confirm password</span>
                   <input
                     type="password"
                     value={confirmPassword}
@@ -235,19 +229,19 @@ export default function AuthPage({ onSignedIn }: AuthPageProps) {
                     autoComplete="new-password"
                     minLength={8}
                     required
-                    className="border border-navy/20 bg-white px-3 py-2.5 font-sans text-sm outline-none focus:border-gold"
+                    className={fieldClass}
                   />
                 </label>
               ) : null}
 
-              {error ? <p className="font-sans text-sm text-red-700">{error}</p> : null}
+              {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="mt-2 bg-navy px-4 py-3 font-sans text-sm font-semibold tracking-[0.18em] text-gold-200 transition-colors hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-2 rounded-lg bg-brand px-4 py-3 text-sm font-semibold text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isSubmitting ? "Please wait…" : mode === "login" ? "ENTER THE ATELIER" : "CREATE ACCOUNT"}
+                {isSubmitting ? "Please wait..." : mode === "login" ? "Sign in" : "Create account"}
               </button>
             </form>
           </div>
