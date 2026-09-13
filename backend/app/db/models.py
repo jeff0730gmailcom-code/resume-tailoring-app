@@ -43,6 +43,9 @@ class ResumeTemplate(Base):
     # Absolute or backend-relative path to the uploaded PDF/DOCX source.
     # Empty for built-in Jinja templates.
     source_path: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    # When an upload cannot be filled as DOCX, render with this on-disk Jinja
+    # layout (e.g. "dejan"). Empty for built-ins (they use their own slug).
+    layout_slug: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     # One default template per user; auto-selected in the gallery.
     is_default: Mapped[bool] = mapped_column(default=False, nullable=False)
 

@@ -1,11 +1,12 @@
 """Render a filled DOCX (uploaded template) to PDF.
 
 Order:
-1. Fill the uploaded sample DOCX with tailored content
+1. Fill the uploaded sample DOCX with tailored content (preserves their layout)
 2. Word DOCX→PDF when available
 3. mammoth HTML → Playwright PDF (no Word)
-4. Built-in Jinja fallback picked from the template name (Nemanja → nemanja,
-   etc.) so preview/download never die — and we do NOT always force Mateo.
+4. Jinja fallback using the upload's layout_slug / filename match
+   (Dejan → dejan, Nemanja → nemanja). Never silently default to Nemanja
+   for unrelated uploads.
 """
 from __future__ import annotations
 
@@ -16,21 +17,31 @@ from pathlib import Path
 from app.models.schemas import TailoredResumeContent
 from app.services.docx_template_fill import fill_docx_template
 from app.services.docx_to_pdf import convert_docx_to_pdf, convert_to_docx
-from app.services.template_registry import resolve_working_docx
+from app.services.template_registry import detect_layout_slug, list_jinja_layout_slugs, resolve_working_docx
 from app.services.template_renderer import ensure_browser, render_html_to_pdf, render_pdf
 
 logger = logging.getLogger(__name__)
 
-_FALLBACK_ORDER = ("nemanja", "mateo", "marek", "quang")
-
 
 def _fallback_jinja_slug(template) -> str:
-    """Pick the closest built-in layout from the upload's display name/slug."""
-    haystack = f"{getattr(template, 'name', '')} {getattr(template, 'slug', '')}".lower()
-    for slug in _FALLBACK_ORDER:
-        if slug in haystack:
-            return slug
-    return "nemanja"
+    """Resolve which on-disk Jinja layout to use when DOCX fill is unavailable."""
+    stored = (getattr(template, "layout_slug", None) or "").strip()
+    if stored and stored in list_jinja_layout_slugs():
+        return stored
+
+    matched = detect_layout_slug(
+        getattr(template, "name", "") or "",
+        getattr(template, "slug", "") or "",
+        getattr(template, "description", "") or "",
+    )
+    if matched:
+        return matched
+
+    # Last resort: Mateo (active default gallery layout), never Nemanja-by-default.
+    available = list_jinja_layout_slugs()
+    if "mateo" in available:
+        return "mateo"
+    return available[0] if available else "mateo"
 
 
 def _docx_to_print_html(docx_path: Path) -> str:
@@ -113,7 +124,7 @@ async def render_uploaded_template_pdf(
             filled_docx = None  # type: ignore[assignment]
     else:
         logger.warning(
-            "Uploaded template %s has no working DOCX — using built-in '%s' layout",
+            "Uploaded template %s has no working DOCX — using Jinja layout '%s'",
             getattr(template, "slug", "?"),
             fallback_slug,
         )
@@ -140,7 +151,7 @@ async def render_uploaded_template_pdf(
 
     await ensure_browser()
     logger.warning(
-        "Falling back to built-in '%s' layout for uploaded template %s",
+        "Falling back to Jinja layout '%s' for uploaded template %s",
         fallback_slug,
         getattr(template, "slug", "?"),
     )

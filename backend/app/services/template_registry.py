@@ -56,6 +56,8 @@ def ensure_templates_schema() -> None:
         statements.append("ALTER TABLE resume_templates ADD COLUMN is_builtin BOOLEAN NOT NULL DEFAULT 0")
     if "source_path" not in columns:
         statements.append("ALTER TABLE resume_templates ADD COLUMN source_path VARCHAR(512) NOT NULL DEFAULT ''")
+    if "layout_slug" not in columns:
+        statements.append("ALTER TABLE resume_templates ADD COLUMN layout_slug VARCHAR(64) NOT NULL DEFAULT ''")
     if "is_default" not in columns:
         statements.append("ALTER TABLE resume_templates ADD COLUMN is_default BOOLEAN NOT NULL DEFAULT 0")
     if not statements:
@@ -174,6 +176,7 @@ def seed_templates_from_disk(static_dir: Path) -> None:
                         user_id=admin_id,
                         is_builtin=True,
                         source_path="",
+                        layout_slug=slug,
                         is_default=is_default,
                     )
                 )
@@ -184,6 +187,7 @@ def seed_templates_from_disk(static_dir: Path) -> None:
                 existing.is_active = True
                 existing.is_builtin = True
                 existing.source_path = ""
+                existing.layout_slug = slug
                 if admin_id is not None:
                     existing.user_id = admin_id
                 if is_default:
@@ -297,6 +301,34 @@ def _display_name_from_filename(filename: str) -> str:
     return cleaned[:120] if cleaned else "My template"
 
 
+def list_jinja_layout_slugs() -> list[str]:
+    """All on-disk Jinja resume layouts (including inactive gallery ones like dejan)."""
+    if not _TEMPLATES_DIR.exists():
+        return []
+    slugs: list[str] = []
+    for folder in sorted(_TEMPLATES_DIR.iterdir()):
+        if folder.is_dir() and not folder.name.startswith("_") and (folder / "template.html.jinja2").exists():
+            slugs.append(folder.name)
+    return slugs
+
+
+def detect_layout_slug(*hints: str) -> str:
+    """Match upload filename/name to an on-disk Jinja layout (e.g. Dejan → dejan).
+
+    Longer slug names win so 'nemanja' is preferred over accidental short matches.
+    Returns '' when nothing matches.
+    """
+    haystack = " ".join(h for h in hints if h).lower()
+    if not haystack:
+        return ""
+    best = ""
+    for slug in sorted(list_jinja_layout_slugs(), key=len, reverse=True):
+        if slug.lower() in haystack:
+            best = slug
+            break
+    return best
+
+
 async def create_uploaded_template(
     *,
     user_id: int,
@@ -304,7 +336,15 @@ async def create_uploaded_template(
     content: bytes,
     static_dir_path: Path | None = None,
 ) -> ResumeTemplate:
-    """Store a user-uploaded PDF/DOCX sample CV as a private template."""
+    """Store a user-uploaded PDF/DOCX sample CV as a private template.
+
+    Files land under backend/data/user_templates/<user_id>/<slug>/:
+      source.pdf|docx  — original upload
+      working.docx     — editable copy used for in-place fill (when available)
+      preview.pdf      — first-page source for the gallery thumbnail
+    Thumbnail PNG: backend/static/template_previews/<slug>.png
+    DB row: resume_templates (user_id, source_path, layout_slug, …)
+    """
     static_dir_path = static_dir_path or static_dir()
     suffix = Path(original_filename).suffix.lower()
     if suffix not in _ALLOWED_UPLOAD_EXTENSIONS:
@@ -320,6 +360,8 @@ async def create_uploaded_template(
 
     working_docx = dest_dir / "working.docx"
     preview_pdf = dest_dir / "preview.pdf"
+    name = _display_name_from_filename(original_filename)
+    layout_slug = detect_layout_slug(original_filename, name)
 
     from app.services.docx_to_pdf import convert_docx_to_pdf, convert_to_docx
 
@@ -350,7 +392,6 @@ async def create_uploaded_template(
     if not served.exists():
         thumbnail_path = _write_placeholder_thumbnail(slug, static_dir_path)
 
-    name = _display_name_from_filename(original_filename)
     with session_scope() as session:
         has_any = (
             session.query(ResumeTemplate)
@@ -360,12 +401,16 @@ async def create_uploaded_template(
         row = ResumeTemplate(
             slug=slug,
             name=name,
-            description="Uploaded sample CV used as your private resume template.",
+            description=(
+                "Uploaded sample CV used as your private resume template."
+                + (f" Layout: {layout_slug}." if layout_slug else "")
+            ),
             thumbnail_path=thumbnail_path,
             is_active=True,
             user_id=user_id,
             is_builtin=False,
             source_path=str(source_path.resolve()),
+            layout_slug=layout_slug,
             is_default=has_any == 0,
         )
         session.add(row)
@@ -376,7 +421,9 @@ async def create_uploaded_template(
 
 
 def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> int:
-    """Rebuild missing thumbnails for uploaded templates (wrong path / failed convert)."""
+    """Rebuild missing thumbnails for uploaded templates (wrong path / failed convert).
+    Also backfills layout_slug from the template name when empty (Dejan → dejan).
+    """
     static_dir_path = static_dir_path or static_dir()
     repaired = 0
     with session_scope() as session:
@@ -386,6 +433,11 @@ def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> 
             .all()
         )
         for row in rows:
+            if not (getattr(row, "layout_slug", None) or "").strip():
+                matched = detect_layout_slug(row.name, row.slug, row.description or "")
+                if matched:
+                    row.layout_slug = matched
+                    repaired += 1
             thumb = static_dir_path / row.thumbnail_path
             if thumb.exists() and thumb.stat().st_size > 0:
                 continue
