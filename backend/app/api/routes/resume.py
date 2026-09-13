@@ -130,13 +130,11 @@ async def upload_resume_template(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File too large. Maximum size is {settings.max_upload_size_mb} MB.",
         )
-    static_dir = Path(__file__).resolve().parent.parent.parent / "static"
     try:
         template = await create_uploaded_template(
             user_id=user.id,
             original_filename=file.filename or f"template{suffix}",
             content=content,
-            static_dir=static_dir,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

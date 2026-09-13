@@ -73,13 +73,23 @@ def get_latest_resume_record(file_id: str) -> ResumeRecord | None:
         return row
 
 
-def list_resume_records(limit: int = 200, user_id: int | None = None) -> list[ResumeRecord]:
-    """Most-recent-first list of generated resume metadata."""
+def list_resume_records(limit: int | None = None, user_id: int | None = None) -> list[ResumeRecord]:
+    """Most-recent-first list of generated resume metadata.
+
+    Returns every matching row by default (no cap). Pass limit only when a
+    caller intentionally wants a truncated window. PDF blobs are deferred so
+    large histories stay cheap to list.
+    """
+    from sqlalchemy.orm import defer
+
     with session_scope() as session:
-        query = session.query(ResumeRecord)
+        query = session.query(ResumeRecord).options(defer(ResumeRecord.cv_pdf))
         if user_id is not None:
             query = query.filter_by(user_id=user_id)
-        rows = query.order_by(ResumeRecord.id.desc()).limit(limit).all()
+        query = query.order_by(ResumeRecord.id.desc())
+        if limit is not None:
+            query = query.limit(limit)
+        rows = query.all()
         session.expunge_all()
         return rows
 

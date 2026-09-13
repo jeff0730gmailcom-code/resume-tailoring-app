@@ -28,7 +28,7 @@ def _template_info(template) -> ResumeTemplateInfo:
     )
 
 
-def _row(user, records, templates=None) -> AdminUserRow:
+def _row(user, records, templates=None, resume_count: int | None = None) -> AdminUserRow:
     return AdminUserRow(
         id=user.id,
         email=user.email,
@@ -37,7 +37,7 @@ def _row(user, records, templates=None) -> AdminUserRow:
         is_approved=bool(user.is_approved) or user.role == "admin",
         is_active=bool(user.is_active),
         created_at=user_created_iso(user),
-        resume_count=len(records),
+        resume_count=len(records) if resume_count is None else resume_count,
         activity=[
             AdminUserActivity(
                 id=record.id,
@@ -58,8 +58,11 @@ def _row(user, records, templates=None) -> AdminUserRow:
 @router.get("/users", response_model=list[AdminUserRow])
 async def admin_list_users(_admin: UserPublic = Depends(get_admin_user)) -> list[AdminUserRow]:
     pairs = list_users_for_admin()
-    templates_by_user = list_templates_for_users([user.id for user, _ in pairs])
-    return [_row(user, records, templates_by_user.get(user.id, [])) for user, records in pairs]
+    templates_by_user = list_templates_for_users([user.id for user, _count, _records in pairs])
+    return [
+        _row(user, records, templates_by_user.get(user.id, []), resume_count=count)
+        for user, count, records in pairs
+    ]
 
 
 @router.patch("/users/{user_id}", response_model=AdminUserRow)
@@ -77,10 +80,10 @@ async def admin_update_user(
         )
     except AuthError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    for user, records in list_users_for_admin():
+    for user, count, records in list_users_for_admin():
         if user.id == user_id:
             templates = list_templates_for_users([user_id]).get(user_id, [])
-            return _row(user, records, templates)
+            return _row(user, records, templates, resume_count=count)
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
 

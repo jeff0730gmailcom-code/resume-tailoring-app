@@ -8,6 +8,8 @@ interface ActivityHistoryProps {
   memberId?: number | null;
 }
 
+const PAGE_SIZE = 10;
+
 const fieldClass =
   "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20";
 
@@ -55,6 +57,7 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
   const [company, setCompany] = useState("");
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
+  const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
@@ -103,7 +106,12 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
     });
   }, [rows, jobTitle, company, createdFrom, createdTo]);
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   useEffect(() => {
+    setPage(1);
     setSelectedIds(new Set());
   }, [jobTitle, company, createdFrom, createdTo, rows]);
 
@@ -116,10 +124,15 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
     });
   }
 
-  function toggleAllVisible() {
-    const ids = filtered.map((row) => row.id);
+  function togglePage() {
+    const ids = pageRows.map((row) => row.id);
     const allSelected = ids.length > 0 && ids.every((id) => selectedIds.has(id));
-    setSelectedIds(allSelected ? new Set() : new Set(ids));
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (allSelected) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
   }
 
   function selectAllMatching() {
@@ -145,7 +158,7 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
     }
   }
 
-  const allVisibleSelected = filtered.length > 0 && filtered.every((row) => selectedIds.has(row.id));
+  const pageSelectedCount = pageRows.filter((row) => selectedIds.has(row.id)).length;
 
   return (
     <div className="flex flex-col gap-5">
@@ -205,8 +218,8 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
         <p>
-          {selectedIds.size} of {filtered.length} selected
-          {rows.length > 0 ? ` · showing ${filtered.length} of ${rows.length}` : ""}
+          {selectedIds.size} of {filtered.length} selected — {pageRows.length} on this page
+          {rows.length > 0 ? ` · ${rows.length} total from database` : ""}
         </p>
         <button
           type="button"
@@ -228,7 +241,7 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
         </div>
       ) : null}
 
-      {!isLoading && filtered.length > 0 ? (
+      {!isLoading && pageRows.length > 0 ? (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[880px] text-left text-sm">
@@ -237,8 +250,8 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
                   <th className="w-10 px-4 py-3">
                     <input
                       type="checkbox"
-                      checked={allVisibleSelected}
-                      onChange={toggleAllVisible}
+                      checked={pageRows.length > 0 && pageSelectedCount === pageRows.length}
+                      onChange={togglePage}
                       className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
                     />
                   </th>
@@ -253,7 +266,7 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => (
+                {pageRows.map((row) => (
                   <tr key={row.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
                     <td className="px-4 py-4">
                       <input
@@ -335,9 +348,39 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
               </tbody>
             </table>
           </div>
-          <div className="border-t border-slate-200 px-4 py-3 text-sm text-slate-500">
-            {filtered.length} application{filtered.length === 1 ? "" : "s"}
-            {filtered.length !== rows.length ? ` (filtered from ${rows.length})` : ""}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-500">
+            <p>
+              {filtered.length} application{filtered.length === 1 ? "" : "s"} — page {currentPage} of {pageCount}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((value) => Math.max(1, value - 1))}
+                className="rounded-lg border border-slate-200 px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
+              >
+                ‹
+              </button>
+              <select
+                value={currentPage}
+                onChange={(event) => setPage(Number(event.target.value))}
+                className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm"
+              >
+                {Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => (
+                  <option key={number} value={number}>
+                    Page {number}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={currentPage >= pageCount}
+                onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+                className="rounded-lg border border-slate-200 px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
+              >
+                ›
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

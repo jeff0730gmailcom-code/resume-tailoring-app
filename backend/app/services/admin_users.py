@@ -45,35 +45,31 @@ def _iso(value) -> str:
     return text_value
 
 
-def list_users_for_admin() -> list[tuple[User, list[ResumeRecord]]]:
+def list_users_for_admin() -> list[tuple[User, int, list[ResumeRecord]]]:
+    """Return (user, resume_count, activity_rows). Activity is empty here —
+    full history is loaded via get_user_with_activity on demand."""
     with session_scope() as session:
         users = session.query(User).order_by(User.id.asc()).all()
-        rows: list[tuple[User, list[ResumeRecord]]] = []
+        rows: list[tuple[User, int, list[ResumeRecord]]] = []
         for user in users:
-            records = (
-                session.query(ResumeRecord)
-                .filter_by(user_id=user.id)
-                .order_by(ResumeRecord.id.desc())
-                .limit(200)
-                .all()
-            )
+            count = session.query(ResumeRecord).filter_by(user_id=user.id).count()
             session.expunge(user)
-            for record in records:
-                session.expunge(record)
-            rows.append((user, records))
+            rows.append((user, count, []))
         return rows
 
 
 def get_user_with_activity(user_id: int) -> tuple[User, list[ResumeRecord]] | None:
+    from sqlalchemy.orm import defer
+
     with session_scope() as session:
         user = session.get(User, user_id)
         if user is None:
             return None
         records = (
             session.query(ResumeRecord)
+            .options(defer(ResumeRecord.cv_pdf))
             .filter_by(user_id=user.id)
             .order_by(ResumeRecord.id.desc())
-            .limit(200)
             .all()
         )
         session.expunge(user)

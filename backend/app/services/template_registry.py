@@ -23,6 +23,8 @@ from app.services.auth_service import is_founding_admin_name
 logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates" / "resumes"
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+_DEFAULT_STATIC_DIR = _BACKEND_DIR / "static"
 _THUMBNAIL_DIRNAME = "template_previews"
 _USER_TEMPLATES_DIRNAME = "user_templates"
 
@@ -63,8 +65,15 @@ def ensure_templates_schema() -> None:
             connection.execute(text(statement))
 
 
-def _thumbnail_dir(static_dir: Path) -> Path:
-    path = static_dir / _THUMBNAIL_DIRNAME
+def static_dir() -> Path:
+    """Gallery thumbnails live under backend/static (mounted at /static)."""
+    path = _DEFAULT_STATIC_DIR
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _thumbnail_dir(static_dir_path: Path) -> Path:
+    path = static_dir_path / _THUMBNAIL_DIRNAME
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -75,21 +84,44 @@ def user_templates_root() -> Path:
     return path
 
 
-def _ensure_thumbnail(slug: str, reference_pdf: Path, static_dir: Path, *, force: bool = False) -> str:
+def _write_placeholder_thumbnail(
+    slug: str,
+    static_dir_path: Path,
+    message: str = "Template preview unavailable",
+) -> str:
     relative_path = f"{_THUMBNAIL_DIRNAME}/{slug}.png"
-    thumbnail_path = static_dir / relative_path
-    if thumbnail_path.exists() and not force:
-        return relative_path
-
-    _thumbnail_dir(static_dir)
-    doc = fitz.open(str(reference_pdf))
+    thumb = static_dir_path / relative_path
+    _thumbnail_dir(static_dir_path)
+    doc = fitz.open()
     try:
-        page = doc[0]
-        pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-        pixmap.save(str(thumbnail_path))
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((72, 72), message[:80], fontsize=14)
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+        pix.save(str(thumb))
     finally:
         doc.close()
     return relative_path
+
+
+def _ensure_thumbnail(slug: str, reference_pdf: Path, static_dir_path: Path, *, force: bool = False) -> str:
+    relative_path = f"{_THUMBNAIL_DIRNAME}/{slug}.png"
+    thumbnail_path = static_dir_path / relative_path
+    if thumbnail_path.exists() and not force:
+        return relative_path
+
+    _thumbnail_dir(static_dir_path)
+    try:
+        doc = fitz.open(str(reference_pdf))
+        try:
+            page = doc[0]
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            pixmap.save(str(thumbnail_path))
+        finally:
+            doc.close()
+        return relative_path
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not rasterize thumbnail for %s from %s", slug, reference_pdf, exc_info=True)
+        return _write_placeholder_thumbnail(slug, static_dir_path)
 
 
 def _founding_admin_id(session) -> int | None:
@@ -270,9 +302,10 @@ async def create_uploaded_template(
     user_id: int,
     original_filename: str,
     content: bytes,
-    static_dir: Path,
+    static_dir_path: Path | None = None,
 ) -> ResumeTemplate:
     """Store a user-uploaded PDF/DOCX sample CV as a private template."""
+    static_dir_path = static_dir_path or static_dir()
     suffix = Path(original_filename).suffix.lower()
     if suffix not in _ALLOWED_UPLOAD_EXTENSIONS:
         raise ValueError("Template upload must be a PDF or DOCX file.")
@@ -290,34 +323,32 @@ async def create_uploaded_template(
 
     from app.services.docx_to_pdf import convert_docx_to_pdf, convert_to_docx
 
+    preview_ok = False
     if suffix == ".docx":
         shutil.copy2(source_path, working_docx)
-        ok = await convert_docx_to_pdf(working_docx, preview_pdf)
-        if not ok:
-            # Thumbnail fallback: leave preview missing and use a blank page later.
-            preview_pdf = None
+        preview_ok = await convert_docx_to_pdf(working_docx, preview_pdf)
+        if not preview_ok:
+            logger.warning("DOCX→PDF failed for uploaded template %s; using placeholder thumbnail", slug)
     else:
         shutil.copy2(source_path, preview_pdf)
+        preview_ok = preview_pdf.exists() and preview_pdf.stat().st_size > 0
         ok = await convert_to_docx(source_path, working_docx)
         if not ok:
             working_docx.unlink(missing_ok=True)
 
-    if preview_pdf is not None and preview_pdf.exists():
-        thumbnail_path = _ensure_thumbnail(slug, preview_pdf, static_dir, force=True)
+    if preview_ok and preview_pdf.exists():
+        thumbnail_path = _ensure_thumbnail(slug, preview_pdf, static_dir_path, force=True)
     else:
-        # Minimal placeholder so the gallery still loads.
-        thumbnail_path = f"{_THUMBNAIL_DIRNAME}/{slug}.png"
-        thumb = static_dir / thumbnail_path
-        _thumbnail_dir(static_dir)
-        if not thumb.exists():
-            doc = fitz.open()
-            try:
-                page = doc.new_page(width=595, height=842)
-                page.insert_text((72, 72), "Template preview unavailable", fontsize=14)
-                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                pix.save(str(thumb))
-            finally:
-                doc.close()
+        thumbnail_path = _write_placeholder_thumbnail(
+            slug,
+            static_dir_path,
+            "Preview unavailable — re-upload as PDF if this persists",
+        )
+
+    # Guarantee the served file exists under the mounted static directory.
+    served = static_dir_path / thumbnail_path
+    if not served.exists():
+        thumbnail_path = _write_placeholder_thumbnail(slug, static_dir_path)
 
     name = _display_name_from_filename(original_filename)
     with session_scope() as session:
@@ -342,6 +373,35 @@ async def create_uploaded_template(
         session.refresh(row)
         session.expunge(row)
         return row
+
+
+def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> int:
+    """Rebuild missing thumbnails for uploaded templates (wrong path / failed convert)."""
+    static_dir_path = static_dir_path or static_dir()
+    repaired = 0
+    with session_scope() as session:
+        rows = (
+            session.query(ResumeTemplate)
+            .filter_by(is_builtin=False, is_active=True)
+            .all()
+        )
+        for row in rows:
+            thumb = static_dir_path / row.thumbnail_path
+            if thumb.exists() and thumb.stat().st_size > 0:
+                continue
+            source = Path(row.source_path) if row.source_path else None
+            preview = source.parent / "preview.pdf" if source else None
+            if preview is not None and preview.exists():
+                row.thumbnail_path = _ensure_thumbnail(row.slug, preview, static_dir_path, force=True)
+                repaired += 1
+                continue
+            if source is not None and source.exists() and source.suffix.lower() == ".pdf":
+                row.thumbnail_path = _ensure_thumbnail(row.slug, source, static_dir_path, force=True)
+                repaired += 1
+                continue
+            row.thumbnail_path = _write_placeholder_thumbnail(row.slug, static_dir_path)
+            repaired += 1
+    return repaired
 
 
 def set_default_template(*, user_id: int, slug: str) -> ResumeTemplate:
