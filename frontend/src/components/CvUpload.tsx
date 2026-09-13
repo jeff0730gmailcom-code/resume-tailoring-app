@@ -42,7 +42,7 @@ export default function CvUpload({ onFileSelected, fileName, isUploading, error 
         }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
-        className={`cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
+        className={`cursor-pointer rounded-lg border-2 border-dashed p-5 text-center transition-colors ${
           isDragging ? "border-indigo-400 bg-indigo-50" : "border-slate-300 hover:border-indigo-300"
         }`}
       >

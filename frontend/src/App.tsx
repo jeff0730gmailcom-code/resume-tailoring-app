@@ -218,7 +218,8 @@ function App() {
   const signedInUser = user;
   const isAdmin = signedInUser.role === "admin";
   const viewingOtherActivity = page === "activity" && activityUserId != null && activityUserId !== signedInUser.id;
-  const shellWidth = page === "users" || page === "activity" ? "max-w-7xl" : "max-w-4xl";
+  const isWorkPage = page === "work";
+  const shellWidth = isWorkPage ? "max-w-none" : "max-w-7xl";
 
   function openMyActivity() {
     setActivityUserId(signedInUser.id);
@@ -236,9 +237,9 @@ function App() {
     }`;
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className={`mx-auto flex ${shellWidth} items-center justify-between px-4 py-3`}>
+    <div className={`bg-slate-50 ${isWorkPage ? "flex h-screen flex-col overflow-hidden" : "min-h-screen"}`}>
+      <header className="shrink-0 border-b border-slate-200 bg-white">
+        <div className={`mx-auto flex ${shellWidth} items-center justify-between px-4 py-3 lg:px-6`}>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-brand">Resume Tailor</p>
             <h1 className="text-lg font-semibold text-slate-900">
@@ -269,8 +270,12 @@ function App() {
         </div>
       </header>
 
-      <div className={`mx-auto ${shellWidth} px-4 py-6`}>
-        <div className="mb-6 flex flex-wrap gap-2">
+      <div
+        className={`mx-auto flex min-h-0 w-full flex-1 flex-col ${shellWidth} ${
+          isWorkPage ? "overflow-hidden px-4 pt-3 lg:px-6 lg:pt-4" : "px-4 py-6"
+        }`}
+      >
+        <div className={`flex flex-wrap gap-2 ${isWorkPage ? "mb-3 shrink-0" : "mb-6"}`}>
           <button type="button" onClick={() => setPage("work")} className={tabClass(page === "work")}>
             Create application
           </button>
@@ -302,89 +307,101 @@ function App() {
           <ActivityHistory currentUser={signedInUser} memberId={viewingOtherActivity ? activityUserId : null} />
         </main>
       ) : (
-      <main className="flex flex-col gap-6">
-        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-900">1. Upload master CV</h2>
-          <p className="mb-4 mt-1 text-sm text-slate-500">PDF or Word file. This is the source of identity facts such as titles and employers.</p>
-          <CvUpload onFileSelected={handleFileSelected} fileName={cv?.fileName} isUploading={isUploading} error={uploadError} />
-        </section>
+      <main className="flex min-h-0 flex-1 flex-col gap-4 pb-4 lg:grid lg:grid-cols-[minmax(360px,0.42fr)_minmax(0,0.58fr)] lg:gap-0 lg:overflow-hidden lg:pb-0">
+        {/* Left: inputs */}
+        <div className="flex min-h-0 flex-col lg:overflow-hidden lg:border-r lg:border-slate-200 lg:pr-5">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 lg:overflow-y-auto lg:pb-3">
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">1. Upload master CV</h2>
+              <p className="mb-3 mt-0.5 text-xs text-slate-500">PDF or Word. Source of titles, employers, and facts.</p>
+              <CvUpload onFileSelected={handleFileSelected} fileName={cv?.fileName} isUploading={isUploading} error={uploadError} />
+            </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-900">2. Paste job description</h2>
-          <p className="mb-4 mt-1 text-sm text-slate-500">Add the posting, stack, company, and a template.</p>
-          <div className="flex flex-col gap-4">
-          <JobDescriptionInput value={jobDescription} onChange={setJobDescription} />
-          <TailoringDetailsInput
-            mainStack={mainStack}
-            onMainStackChange={setMainStack}
-            companyName={companyName}
-            onCompanyNameChange={setCompanyName}
-            jobLink={jobLink}
-            onJobLinkChange={setJobLink}
-            showValidation={attemptedGenerate}
-          />
-          <div className="flex flex-col gap-2">
-            <span className="font-medium text-slate-700">
-              Your resume templates <span className="text-red-500">*</span>
-            </span>
-            <p className="text-sm text-slate-500">
-              Pick one of your templates, or upload a sample CV (PDF/DOCX). You only see templates you own.
-            </p>
-            <TemplateGallery
-              selectedSlug={selectedTemplateSlug}
-              onSelect={setSelectedTemplateSlug}
-              showValidation={attemptedGenerate}
-            />
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">2. Job &amp; template</h2>
+              <p className="mb-3 mt-0.5 text-xs text-slate-500">Posting, stack, company, link, and your template.</p>
+              <div className="flex flex-col gap-4">
+                <JobDescriptionInput value={jobDescription} onChange={setJobDescription} />
+                <TailoringDetailsInput
+                  mainStack={mainStack}
+                  onMainStackChange={setMainStack}
+                  companyName={companyName}
+                  onCompanyNameChange={setCompanyName}
+                  jobLink={jobLink}
+                  onJobLinkChange={setJobLink}
+                  showValidation={attemptedGenerate}
+                />
+                <div className="flex flex-col gap-2">
+                  <span className="font-medium text-slate-700">
+                    Your resume templates <span className="text-red-500">*</span>
+                  </span>
+                  <p className="text-xs text-slate-500">
+                    Pick one of your templates, or upload a sample CV (PDF/DOCX).
+                  </p>
+                  <TemplateGallery
+                    selectedSlug={selectedTemplateSlug}
+                    onSelect={setSelectedTemplateSlug}
+                    showValidation={attemptedGenerate}
+                    dense
+                  />
+                </div>
+                <CoverLetterChoice
+                  value={includeCoverLetter}
+                  onChange={setIncludeCoverLetter}
+                  disabled={isGenerating || isUploading}
+                />
+                <ApplicationQuestionsInput
+                  questions={applicationQuestions}
+                  onChange={setApplicationQuestions}
+                  disabled={isGenerating || isUploading}
+                />
+              </div>
+            </section>
           </div>
-          <CoverLetterChoice
-            value={includeCoverLetter}
-            onChange={setIncludeCoverLetter}
-            disabled={isGenerating || isUploading}
+
+          <div className="sticky bottom-0 z-10 shrink-0 border-t border-slate-200 bg-slate-50/95 py-3 backdrop-blur lg:border-slate-200">
+            <button
+              disabled={!canGenerate}
+              onClick={handleGenerate}
+              className="w-full rounded-xl bg-brand px-4 py-3 font-semibold text-white shadow-sm transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {generateButtonLabel(includeCoverLetter, applicationQuestions.length > 0, isGenerating)}
+            </button>
+            {generateError && <p className="mt-2 text-sm text-red-600">{generateError}</p>}
+          </div>
+        </div>
+
+        {/* Right: preview */}
+        <div className="flex min-h-0 flex-col gap-4 lg:overflow-y-auto lg:pl-5 lg:pb-4">
+          <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:min-h-[calc(100vh-11rem)]">
+            <h2 className="mb-3 shrink-0 text-sm font-semibold text-slate-900">3. Preview &amp; download</h2>
+            <div className="flex min-h-0 flex-1 flex-col">
+              <ResumePreview
+                resume={resume}
+                fileId={cv?.fileId ?? null}
+                generatedFilename={generatedFilename}
+                fillHeight
+              />
+            </div>
+          </section>
+
+          <CoverLetterPreview
+            includeCoverLetter={includeCoverLetter}
+            coverLetter={coverLetter}
+            isGenerating={isGenerating}
+            hasResume={Boolean(resume)}
+            lastGenerateIncludedLetter={lastGenerateIncludedLetter}
           />
-          <ApplicationQuestionsInput
+
+          <ApplicationAnswersPreview
+            sectionNumber={answersSectionNumber}
             questions={applicationQuestions}
-            onChange={setApplicationQuestions}
-            disabled={isGenerating || isUploading}
+            answers={applicationAnswers}
+            isGenerating={isGenerating}
+            hasResume={Boolean(resume)}
+            lastGenerateHadQuestions={lastGenerateHadQuestions}
           />
-          </div>
-        </section>
-
-        <section className="flex flex-col gap-2">
-          <button
-            disabled={!canGenerate}
-            onClick={handleGenerate}
-            className="w-full rounded-xl bg-brand px-4 py-3 font-semibold text-white shadow-sm transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            {generateButtonLabel(includeCoverLetter, applicationQuestions.length > 0, isGenerating)}
-          </button>
-          {generateError && <p className="text-sm text-red-600">{generateError}</p>}
-        </section>
-
-        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-base font-semibold text-slate-900">3. Preview &amp; download</h2>
-          <ResumePreview
-            resume={resume}
-            fileId={cv?.fileId ?? null}
-            generatedFilename={generatedFilename}
-          />
-        </section>
-
-        <CoverLetterPreview
-          includeCoverLetter={includeCoverLetter}
-          coverLetter={coverLetter}
-          isGenerating={isGenerating}
-          hasResume={Boolean(resume)}
-          lastGenerateIncludedLetter={lastGenerateIncludedLetter}
-        />
-
-        <ApplicationAnswersPreview
-          sectionNumber={answersSectionNumber}
-          questions={applicationQuestions}
-          answers={applicationAnswers}
-          isGenerating={isGenerating}
-          hasResume={Boolean(resume)}
-          lastGenerateHadQuestions={lastGenerateHadQuestions}
-        />
+        </div>
       </main>
       )}
       </div>

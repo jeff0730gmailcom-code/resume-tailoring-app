@@ -15,9 +15,17 @@ interface TemplateGalleryProps {
   disabled?: boolean;
   /** Only show "required" validation error once the user has tried to submit. */
   showValidation?: boolean;
+  /** Compact layout for the Create application left pane. */
+  dense?: boolean;
 }
 
-export default function TemplateGallery({ selectedSlug, onSelect, disabled, showValidation }: TemplateGalleryProps) {
+export default function TemplateGallery({
+  selectedSlug,
+  onSelect,
+  disabled,
+  showValidation,
+  dense = false,
+}: TemplateGalleryProps) {
   const [templates, setTemplates] = useState<ResumeTemplateInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -150,8 +158,14 @@ export default function TemplateGallery({ selectedSlug, onSelect, disabled, show
       {templates.length === 0 ? (
         <p className="text-sm text-slate-500">No templates yet. Upload a PDF or DOCX sample CV to get started.</p>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,320px)]">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div
+          className={
+            dense
+              ? "flex flex-col gap-3"
+              : "grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,320px)]"
+          }
+        >
+          <div className={dense ? "grid grid-cols-2 gap-2 sm:grid-cols-3" : "grid grid-cols-2 gap-3 sm:grid-cols-3"}>
             {templates.map((template) => {
               const isSelected = template.slug === selectedSlug;
               return (
@@ -167,7 +181,7 @@ export default function TemplateGallery({ selectedSlug, onSelect, disabled, show
                     onClick={() => onSelect(template.slug)}
                     className="flex flex-col text-left disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <div className="aspect-[3/4] w-full overflow-hidden bg-slate-100">
+                    <div className={`w-full overflow-hidden bg-slate-100 ${dense ? "aspect-[3/3.6]" : "aspect-[3/4]"}`}>
                       <img
                         src={template.thumbnailUrl}
                         alt={`${template.name} resume template preview`}
@@ -175,16 +189,16 @@ export default function TemplateGallery({ selectedSlug, onSelect, disabled, show
                         loading="lazy"
                       />
                     </div>
-                    <div className="p-2">
+                    <div className={dense ? "p-1.5" : "p-2"}>
                       <div className="flex items-center gap-1.5">
-                        <p className="text-sm font-medium text-slate-800">{template.name}</p>
+                        <p className={`font-medium text-slate-800 ${dense ? "text-xs" : "text-sm"}`}>{template.name}</p>
                         {template.isDefault ? (
                           <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
                             Default
                           </span>
                         ) : null}
                       </div>
-                      {template.description ? (
+                      {template.description && !dense ? (
                         <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{template.description}</p>
                       ) : null}
                     </div>
@@ -216,7 +230,7 @@ export default function TemplateGallery({ selectedSlug, onSelect, disabled, show
             })}
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className={`rounded-xl border border-slate-200 bg-slate-50 ${dense ? "p-2" : "p-3"}`}>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Preview</p>
             {selectedTemplate ? (
               <button
@@ -228,19 +242,23 @@ export default function TemplateGallery({ selectedSlug, onSelect, disabled, show
                   <img
                     src={selectedTemplate.thumbnailUrl}
                     alt={`${selectedTemplate.name} large preview`}
-                    className="mx-auto max-h-[28rem] w-full object-contain object-top"
+                    className={`mx-auto w-full object-contain object-top ${dense ? "max-h-52" : "max-h-[28rem]"}`}
                   />
                 </div>
                 <div className="mt-2">
                   <p className="text-sm font-semibold text-slate-900">{selectedTemplate.name}</p>
-                  {selectedTemplate.description ? (
+                  {selectedTemplate.description && !dense ? (
                     <p className="mt-0.5 text-xs text-slate-500">{selectedTemplate.description}</p>
                   ) : null}
                   <p className="mt-1 text-[11px] text-indigo-600 group-hover:underline">Click to enlarge</p>
                 </div>
               </button>
             ) : (
-              <div className="flex min-h-[16rem] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-4 text-center">
+              <div
+                className={`flex items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-4 text-center ${
+                  dense ? "min-h-[8rem]" : "min-h-[16rem]"
+                }`}
+              >
                 <p className="text-sm text-slate-500">Select a template to preview it here.</p>
               </div>
             )}

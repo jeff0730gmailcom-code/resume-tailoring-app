@@ -6,12 +6,15 @@ interface ResumePreviewProps {
   resume: TailoredResumeContent | null;
   fileId: string | null;
   generatedFilename?: string | null;
+  /** Grow the PDF iframe to fill the parent pane (Create application desktop layout). */
+  fillHeight?: boolean;
 }
 
 export default function ResumePreview({
   resume,
   fileId,
   generatedFilename,
+  fillHeight = false,
 }: ResumePreviewProps) {
   const [previewObjectUrl, setPreviewObjectUrl] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
@@ -88,9 +91,20 @@ export default function ResumePreview({
     }
   }
 
+  const frameBoxClass = fillHeight
+    ? "flex min-h-[28rem] flex-1 flex-col lg:min-h-0"
+    : "aspect-[1/1.414] w-full";
+  const frameClass = fillHeight
+    ? "h-full min-h-[28rem] w-full flex-1 border-0 lg:min-h-0"
+    : "aspect-[1/1.414] w-full border-0";
+
   if (!resume) {
     return (
-      <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-400">
+      <div
+        className={`flex items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-slate-400 ${
+          fillHeight ? "min-h-[28rem] flex-1 lg:min-h-0" : ""
+        }`}
+      >
         Your tailored resume preview will appear here.
       </div>
     );
@@ -100,15 +114,15 @@ export default function ResumePreview({
   const folderHint = generatedFilename || "Name_stack_company";
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+    <div className={`flex flex-col gap-3 ${fillHeight ? "min-h-0 flex-1" : ""}`}>
+      <div className={`overflow-hidden rounded-lg border border-slate-200 bg-slate-100 ${fillHeight ? "flex min-h-0 flex-1 flex-col" : ""}`}>
         {isPreviewLoading && (
-          <div className="flex aspect-[1/1.414] w-full items-center justify-center text-sm text-slate-500">
+          <div className={`flex items-center justify-center text-sm text-slate-500 ${frameBoxClass}`}>
             Rendering preview&hellip;
           </div>
         )}
         {!isPreviewLoading && previewError && (
-          <div className="flex aspect-[1/1.414] w-full flex-col items-center justify-center gap-1 p-8 text-center">
+          <div className={`flex flex-col items-center justify-center gap-1 p-8 text-center ${frameBoxClass}`}>
             <p className="text-sm font-medium text-red-600">Couldn&apos;t render the preview</p>
             <p className="text-xs text-slate-500">{previewError}</p>
           </div>
@@ -117,17 +131,17 @@ export default function ResumePreview({
           <iframe
             src={`${previewObjectUrl}#toolbar=0`}
             title="Tailored resume preview"
-            className="aspect-[1/1.414] w-full border-0"
+            className={frameClass}
           />
         )}
       </div>
 
-      <p className="text-xs text-slate-500">
+      <p className="shrink-0 text-xs text-slate-500">
         This preview is the exact PDF that will be saved — same template, fonts, and layout.
       </p>
 
       {fileId && (
-        <div className="flex flex-col gap-1">
+        <div className="flex shrink-0 flex-col gap-1">
           <div className="flex gap-2">
             <button
               type="button"
