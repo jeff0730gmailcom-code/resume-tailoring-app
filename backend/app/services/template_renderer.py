@@ -17,6 +17,7 @@ template per design.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import sys
@@ -81,12 +82,22 @@ async def start_browser() -> None:
         _playwright, _browser = None, None
         return
 
-    last_error: Exception | None = None
-    for label, kwargs in (
-        ("bundled Chromium", {}),
-        ("system Chrome", {"channel": "chrome"}),
+    # Prefer system Edge/Chrome on Windows first — bundled Chromium is often
+    # missing under Cursor's sandbox cache, while Edge is usually installed.
+    launch_attempts: list[tuple[str, dict]] = [
         ("system Edge", {"channel": "msedge"}),
-    ):
+        ("system Chrome", {"channel": "chrome"}),
+        ("bundled Chromium", {}),
+    ]
+    if sys.platform != "win32":
+        launch_attempts = [
+            ("bundled Chromium", {}),
+            ("system Chrome", {"channel": "chrome"}),
+            ("system Edge", {"channel": "msedge"}),
+        ]
+
+    last_error: Exception | None = None
+    for label, kwargs in launch_attempts:
         try:
             _browser = await _playwright.chromium.launch(**kwargs, args=_CHROMIUM_ARGS)
             logger.info("Playwright launched %s for resume template rendering", label)
@@ -104,6 +115,48 @@ async def start_browser() -> None:
     except Exception:  # noqa: BLE001
         pass
     _playwright, _browser = None, None
+
+
+async def ensure_browser() -> bool:
+    """Start Playwright on demand if startup failed or the browser died."""
+    global _browser
+    if _browser is not None:
+        try:
+            # Cheap liveness check — closed browsers reject new pages.
+            if _browser.is_connected():
+                return True
+        except Exception:  # noqa: BLE001
+            _browser = None
+    await start_browser()
+    return _browser is not None
+
+
+def _sync_render_html_to_pdf(html: str) -> bytes | None:
+    """Windows-safe fallback when the async Playwright loop cannot spawn browsers."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:  # noqa: BLE001
+        return None
+
+    channels: list[str | None] = ["msedge", "chrome", None]
+    with sync_playwright() as playwright:
+        browser = None
+        for channel in channels:
+            try:
+                kwargs = {"channel": channel} if channel else {}
+                browser = playwright.chromium.launch(**kwargs, args=_CHROMIUM_ARGS)
+                logger.info("Sync Playwright launched via %s", channel or "bundled Chromium")
+                break
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Sync Playwright launch failed (%s): %s", channel or "bundled", exc)
+        if browser is None:
+            return None
+        try:
+            page = browser.new_page()
+            page.set_content(html, wait_until="load")
+            return page.pdf(format="A4", print_background=True)
+        finally:
+            browser.close()
 
 
 async def stop_browser() -> None:
@@ -168,23 +221,25 @@ async def render_pdf(slug: str, resume: TailoredResumeContent) -> bytes | None:
     not installed / failed to launch) - callers should treat that as a
     soft failure, same spirit as docx_to_pdf's boolean-returning
     conversions."""
-    if _browser is None:
-        logger.error("render_pdf called but Playwright browser is not running")
-        return None
-
     html = render_html(slug, resume)
     return await render_html_to_pdf(html)
 
 
 async def render_html_to_pdf(html: str) -> bytes | None:
-    """Render arbitrary HTML to A4 PDF bytes via the warm Playwright browser."""
-    if _browser is None:
-        logger.error("render_html_to_pdf called but Playwright browser is not running")
-        return None
+    """Render arbitrary HTML to A4 PDF bytes via Playwright.
 
-    page = await _browser.new_page()
-    try:
-        await page.set_content(html, wait_until="load")
-        return await page.pdf(format="A4", print_background=True)
-    finally:
-        await page.close()
+    Prefers the warm async browser; if that is unavailable (common on some
+    Windows event-loop setups), falls back to sync Playwright in a worker
+    thread so preview/download still work.
+    """
+    if await ensure_browser() and _browser is not None:
+        page = await _browser.new_page()
+        try:
+            await page.set_content(html, wait_until="load")
+            return await page.pdf(format="A4", print_background=True)
+        finally:
+            await page.close()
+
+    logger.warning("Async Playwright unavailable — trying sync PDF render in a worker thread")
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _sync_render_html_to_pdf, html)
