@@ -37,9 +37,11 @@ def init_db() -> None:
     Base.metadata.create_all(bind=_engine)
     from app.services.admin_users import ensure_founding_admin, ensure_users_schema
     from app.services.resume_records import ensure_resume_records_schema
+    from app.services.template_registry import ensure_templates_schema
 
     ensure_users_schema()
     ensure_resume_records_schema()
+    ensure_templates_schema()
     ensure_founding_admin()
 
 

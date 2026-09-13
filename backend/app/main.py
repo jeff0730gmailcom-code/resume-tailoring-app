@@ -79,6 +79,18 @@ async def lifespan(_app: FastAPI):
     _log_active_config()
     init_db()
     seed_templates_from_disk(_STATIC_DIR)
+    from app.db.models import User
+    from app.db.session import session_scope
+    from app.services.auth_service import is_founding_admin_name
+    from app.services.template_registry import assign_builtin_templates_to_admin
+
+    with session_scope() as session:
+        admin = next((u for u in session.query(User).all() if is_founding_admin_name(u.name)), None)
+        if admin is None:
+            admin = session.query(User).filter_by(role="admin").order_by(User.id.asc()).first()
+        admin_id = admin.id if admin is not None else None
+    if admin_id is not None:
+        assign_builtin_templates_to_admin(admin_id)
     await template_renderer.start_browser()
     yield
     # Cleanly quit the warm Word COM instance (see docx_to_pdf.py) and the

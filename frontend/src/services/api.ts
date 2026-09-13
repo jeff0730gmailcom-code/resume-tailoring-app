@@ -173,7 +173,24 @@ export async function fetchAdminUsers(): Promise<AdminUserRow[]> {
   if (!response.ok) {
     throw new ApiError(await readErrorDetail(response), response.status);
   }
-  return response.json();
+  const rows = (await response.json()) as Array<Record<string, unknown>>;
+  return rows.map(mapAdminUser);
+}
+
+function mapAdminUser(row: Record<string, unknown>): AdminUserRow {
+  const templatesRaw = Array.isArray(row.templates) ? row.templates : [];
+  return {
+    id: Number(row.id),
+    email: String(row.email ?? ""),
+    name: String(row.name ?? ""),
+    role: String(row.role ?? "user"),
+    is_approved: Boolean(row.is_approved),
+    is_active: Boolean(row.is_active),
+    created_at: String(row.created_at ?? ""),
+    resume_count: Number(row.resume_count ?? 0),
+    activity: Array.isArray(row.activity) ? (row.activity as AdminUserRow["activity"]) : [],
+    templates: templatesRaw.map((t) => mapTemplate(t as Record<string, unknown>)),
+  };
 }
 
 export async function fetchAdminUser(userId: number): Promise<AdminUserRow> {
@@ -181,7 +198,7 @@ export async function fetchAdminUser(userId: number): Promise<AdminUserRow> {
   if (!response.ok) {
     throw new ApiError(await readErrorDetail(response), response.status);
   }
-  return response.json();
+  return mapAdminUser(await response.json());
 }
 
 export async function updateAdminUser(
@@ -196,7 +213,7 @@ export async function updateAdminUser(
   if (!response.ok) {
     throw new ApiError(await readErrorDetail(response), response.status);
   }
-  return response.json();
+  return mapAdminUser(await response.json());
 }
 
 export async function deleteAdminUser(userId: number): Promise<void> {
@@ -246,17 +263,55 @@ export async function uploadCv(file: File): Promise<UploadedCv> {
 }
 
 export async function fetchTemplates(): Promise<ResumeTemplateInfo[]> {
-  const response = await fetch(`${API_BASE_URL}/api/resume/templates`);
+  const response = await apiFetch("/api/resume/templates");
   if (!response.ok) {
     throw new ApiError(await readErrorDetail(response), response.status);
   }
   const data = await response.json();
-  return (data as Array<Record<string, unknown>>).map((t) => ({
+  return (data as Array<Record<string, unknown>>).map(mapTemplate);
+}
+
+function mapTemplate(t: Record<string, unknown>): ResumeTemplateInfo {
+  return {
     slug: t.slug as string,
     name: t.name as string,
     description: (t.description as string) ?? "",
     thumbnailUrl: `${API_BASE_URL}${t.thumbnail_url as string}`,
-  }));
+    isBuiltin: Boolean(t.is_builtin),
+    isDefault: Boolean(t.is_default),
+  };
+}
+
+export async function uploadResumeTemplate(file: File): Promise<ResumeTemplateInfo> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiFetch("/api/resume/templates", {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  return mapTemplate(await response.json());
+}
+
+export async function setDefaultResumeTemplate(slug: string): Promise<ResumeTemplateInfo> {
+  const response = await apiFetch(`/api/resume/templates/${encodeURIComponent(slug)}/default`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  return mapTemplate(await response.json());
+}
+
+export async function deleteResumeTemplate(slug: string): Promise<void> {
+  const response = await apiFetch(`/api/resume/templates/${encodeURIComponent(slug)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
 }
 
 function mapCoverLetter(raw: Record<string, unknown> | null | undefined): CoverLetterContent | null {

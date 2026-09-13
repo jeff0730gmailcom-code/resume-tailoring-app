@@ -17,6 +17,8 @@ export interface ResumeTemplateInfo {
   description: string;
   /** Path under the backend's /static mount - prefix with the API base URL to load. */
   thumbnailUrl: string;
+  isBuiltin: boolean;
+  isDefault: boolean;
 }
 
 export interface ContactInfo {
@@ -144,6 +146,7 @@ export interface AdminUserRow {
   created_at: string;
   resume_count: number;
   activity: AdminUserActivity[];
+  templates: ResumeTemplateInfo[];
 }
 
 export function userCanUseApp(user: UserPublic): boolean {

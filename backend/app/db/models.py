@@ -1,13 +1,10 @@
-"""SQLAlchemy ORM models for the two tables this app needs:
+"""SQLAlchemy ORM models for the tables this app needs:
 
-- ResumeTemplate: the selectable resume layouts shown in the frontend
-  gallery (see app/services/template_registry.py, which seeds these from
-  app/templates/resumes/*/ on startup).
-- ResumeRecord: one row per generated tailored resume, replacing the old
-  flat-file "resume history" log - see app/api/routes/resume.py.
-
-user_id on ResumeRecord is filled when a signed-in user tailors a resume.
-See app/db/models.py User and app/api/routes/auth.py.
+- ResumeTemplate: selectable resume layouts. Built-in Jinja templates are
+  owned by the founding admin; each user may also upload their own
+  PDF/DOCX sample CVs as private templates.
+- ResumeRecord: one row per generated tailored resume.
+- User: auth accounts (see app/api/routes/auth.py).
 """
 from __future__ import annotations
 
@@ -32,15 +29,25 @@ class ResumeTemplate(Base):
     slug: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    # Path to the gallery thumbnail, relative to the /static mount (see
-    # app/main.py) - e.g. "template_previews/dejan.png". The thumbnail is
-    # the real sample CV's own first page (see template_registry.py), not
-    # a synthetic re-render.
+    # Path to the gallery thumbnail, relative to the /static mount.
     thumbnail_path: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    # Owner of this template. Built-ins are assigned to the founding admin;
+    # uploaded templates belong to the uploading user. Users only list/use
+    # their own rows.
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    # True for on-disk Jinja layouts under app/templates/resumes/<slug>/.
+    is_builtin: Mapped[bool] = mapped_column(default=False, nullable=False)
+    # Absolute or backend-relative path to the uploaded PDF/DOCX source.
+    # Empty for built-in Jinja templates.
+    source_path: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    # One default template per user; auto-selected in the gallery.
+    is_default: Mapped[bool] = mapped_column(default=False, nullable=False)
+
     resume_records: Mapped[list["ResumeRecord"]] = relationship(back_populates="template")
+    owner: Mapped["User | None"] = relationship(back_populates="templates")
 
 
 class ResumeRecord(Base):
@@ -57,7 +64,6 @@ class ResumeRecord(Base):
     cv_pdf: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     cv_saved: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
-    # Reserved for auth - set on /tailor when the caller is signed in.
     user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     template: Mapped["ResumeTemplate | None"] = relationship(back_populates="resume_records")
@@ -79,3 +85,4 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
     resume_records: Mapped[list["ResumeRecord"]] = relationship(back_populates="user")
+    templates: Mapped[list["ResumeTemplate"]] = relationship(back_populates="owner")

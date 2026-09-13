@@ -43,7 +43,8 @@ from app.services.ai_tailor import AiTailoringError, tailor_resume
 from app.services.ats_scorer import compute_ats_match
 from app.services.cv_parser import CvParsingError, extract_text_from_cv
 from app.services.cv_structurer import structure_cv
-from app.services.docx_to_pdf import convert_to_docx
+from app.services.docx_template_fill import fill_docx_template
+from app.services.docx_to_pdf import convert_docx_to_pdf, convert_to_docx
 from app.services.filename_generator import generate_resume_cv_stem, generate_resume_filename, generate_resume_folder_name
 from app.services.jd_analyzer import analyze_job_description
 from app.services.resume_matcher import match_resume_to_jd
@@ -55,7 +56,15 @@ from app.services.resume_records import (
     save_resume_record,
 )
 from app.services.resume_validator import close_ats_gaps, validate_and_fix_resume
-from app.services.template_registry import get_template, get_template_by_id, list_templates
+from app.services.template_registry import (
+    create_uploaded_template,
+    delete_user_template,
+    get_template_by_id,
+    get_template_for_user,
+    list_templates_for_user,
+    resolve_working_docx,
+    set_default_template,
+)
 from app.services.template_renderer import render_pdf
 from app.utils import file_utils
 from app.utils.timing import PerfReport
@@ -85,21 +94,76 @@ def _require_file_owner(file_id: str, user: UserPublic) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this file.")
 
 
+def _template_info(template) -> ResumeTemplateInfo:
+    return ResumeTemplateInfo(
+        slug=template.slug,
+        name=template.name,
+        description=template.description,
+        thumbnail_url=f"/static/{template.thumbnail_path}",
+        is_builtin=bool(getattr(template, "is_builtin", False)),
+        is_default=bool(getattr(template, "is_default", False)),
+    )
+
+
 @router.get("/templates", response_model=list[ResumeTemplateInfo])
-async def resume_templates() -> list[ResumeTemplateInfo]:
-    """List every selectable resume template for the frontend gallery (see
-    app/services/template_registry.seed_templates_from_disk, run at
-    startup). thumbnail_url is a path under the /static mount (see
-    app/main.py) - the frontend prefixes it with its API base URL."""
-    return [
-        ResumeTemplateInfo(
-            slug=t.slug,
-            name=t.name,
-            description=t.description,
-            thumbnail_url=f"/static/{t.thumbnail_path}",
+async def resume_templates(user: UserPublic = Depends(get_approved_user)) -> list[ResumeTemplateInfo]:
+    """List resume templates owned by the signed-in user only."""
+    return [_template_info(t) for t in list_templates_for_user(user.id)]
+
+
+@router.post("/templates", response_model=ResumeTemplateInfo)
+async def upload_resume_template(
+    file: UploadFile = File(...),
+    user: UserPublic = Depends(get_approved_user),
+) -> ResumeTemplateInfo:
+    """Upload a sample CV (PDF or DOCX) as a private template for this user."""
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".pdf", ".docx"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Template upload must be a PDF or DOCX file.",
         )
-        for t in list_templates()
-    ]
+    content = await file.read()
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large. Maximum size is {settings.max_upload_size_mb} MB.",
+        )
+    static_dir = Path(__file__).resolve().parent.parent.parent / "static"
+    try:
+        template = await create_uploaded_template(
+            user_id=user.id,
+            original_filename=file.filename or f"template{suffix}",
+            content=content,
+            static_dir=static_dir,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _template_info(template)
+
+
+@router.post("/templates/{slug}/default", response_model=ResumeTemplateInfo)
+async def mark_default_template(
+    slug: str,
+    user: UserPublic = Depends(get_approved_user),
+) -> ResumeTemplateInfo:
+    try:
+        template = set_default_template(user_id=user.id, slug=slug)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return _template_info(template)
+
+
+@router.delete("/templates/{slug}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_resume_template(
+    slug: str,
+    user: UserPublic = Depends(get_approved_user),
+) -> None:
+    try:
+        delete_user_template(user_id=user.id, slug=slug)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -182,11 +246,11 @@ async def tailor(
     if not payload.template_slug.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please select a resume template.")
 
-    template = get_template(payload.template_slug)
+    template = get_template_for_user(payload.template_slug, user.id)
     if template is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown resume template '{payload.template_slug}'.",
+            detail=f"Unknown resume template '{payload.template_slug}'. Upload or pick one of your templates.",
         )
 
     _require_file_owner(payload.file_id, user)
@@ -298,7 +362,13 @@ async def resume_history(user: UserPublic = Depends(get_approved_user)) -> list[
     """Resume-generation history (see app/db/models.py's ResumeRecord),
     most recent first."""
     records = list_resume_records(user_id=user.id)
-    slug_by_template_id = {t.id: t.slug for t in list_templates()}
+    slug_by_template_id = {t.id: t.slug for t in list_templates_for_user(user.id)}
+    # Also resolve inactive / deleted-but-still-referenced templates by id.
+    for record in records:
+        if record.template_id and record.template_id not in slug_by_template_id:
+            template = get_template_by_id(record.template_id)
+            if template is not None:
+                slug_by_template_id[template.id] = template.slug
     return [
         ResumeMetadata(
             id=record.id,
@@ -316,9 +386,8 @@ async def resume_history(user: UserPublic = Depends(get_approved_user)) -> list[
 
 
 async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
-    """Shared by /download and /preview: load the tailored content + its
-    selected template, render it through the exact same Jinja2 + Playwright
-    pipeline, cache the bytes to disk, and return (pdf_path, resume_record).
+    """Shared by /download and /preview: render tailored content into the
+    selected template (built-in Jinja + Playwright, or uploaded DOCX fill).
     """
     tailored = file_utils.load_tailored_resume(file_id)
     if tailored is None:
@@ -339,14 +408,45 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
 
     pdf_path = file_utils.get_tailored_pdf_path(file_id)
     with perf.stage("PDF Generation"):
-        pdf_bytes = await render_pdf(template.slug, tailored)
+        if getattr(template, "is_builtin", True):
+            pdf_bytes = await render_pdf(template.slug, tailored)
+        else:
+            pdf_bytes = await _render_uploaded_template_pdf(file_id, template, tailored)
     if pdf_bytes is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not render the resume PDF. Install Google Chrome or Microsoft Edge, or run `playwright install chromium`.",
+            detail=(
+                "Could not render the resume PDF. For built-in templates install Chrome/Edge "
+                "or run `playwright install chromium`. For uploaded templates, Microsoft Word "
+                "is required to convert the sample CV."
+            ),
         )
     pdf_path.write_bytes(pdf_bytes)
     return pdf_path, record
+
+
+async def _render_uploaded_template_pdf(file_id: str, template, tailored) -> bytes | None:
+    working = resolve_working_docx(template)
+    if working is None or not working.exists():
+        source = Path(template.source_path) if template.source_path else None
+        if source is None or not source.exists():
+            return None
+        working = source.parent / "working.docx"
+        ok = await convert_to_docx(source, working)
+        if not ok or not working.exists():
+            return None
+
+    filled_docx = file_utils.get_file_dir(file_id) / "filled_template.docx"
+    filled_pdf = file_utils.get_file_dir(file_id) / "filled_template.pdf"
+    try:
+        fill_docx_template(working, filled_docx, tailored)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to fill uploaded template %s", template.slug)
+        return None
+    ok = await convert_docx_to_pdf(filled_docx, filled_pdf)
+    if not ok or not filled_pdf.exists():
+        return None
+    return filled_pdf.read_bytes()
 
 
 @router.get("/preview/{file_id}")

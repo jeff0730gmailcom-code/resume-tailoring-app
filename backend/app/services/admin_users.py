@@ -22,12 +22,18 @@ def ensure_users_schema() -> None:
 
 def ensure_founding_admin() -> None:
     """Steve Jeff is always an active, approved administrator."""
+    from app.services.template_registry import assign_builtin_templates_to_admin
+
+    admin_ids: list[int] = []
     with session_scope() as session:
         for user in session.query(User).all():
             if is_founding_admin_name(user.name):
                 user.role = "admin"
                 user.is_approved = True
                 user.is_active = True
+                admin_ids.append(user.id)
+    for admin_id in admin_ids:
+        assign_builtin_templates_to_admin(admin_id)
 
 
 def _iso(value) -> str:
@@ -94,6 +100,17 @@ def delete_user(*, actor_id: int, user_id: int) -> None:
             if other_admins == 0:
                 raise AuthError("Cannot delete the only administrator.")
         session.query(ResumeRecord).filter_by(user_id=user.id).delete()
+        from pathlib import Path
+        import shutil
+
+        from app.db.models import ResumeTemplate
+
+        for template in session.query(ResumeTemplate).filter_by(user_id=user.id).all():
+            if template.source_path:
+                path = Path(template.source_path)
+                if path.exists():
+                    shutil.rmtree(path.parent, ignore_errors=True)
+            session.delete(template)
         session.delete(user)
 
 

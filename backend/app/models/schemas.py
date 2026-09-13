@@ -89,6 +89,8 @@ class ResumeTemplateInfo(BaseModel):
     name: str
     description: str = ""
     thumbnail_url: str
+    is_builtin: bool = False
+    is_default: bool = False
 
 
 class CoverLetterDraft(BaseModel):
@@ -358,6 +360,7 @@ class AdminUserRow(BaseModel):
     created_at: str
     resume_count: int
     activity: list[AdminUserActivity] = Field(default_factory=list)
+    templates: list[ResumeTemplateInfo] = Field(default_factory=list)
 
 
 class AdminUserUpdate(BaseModel):

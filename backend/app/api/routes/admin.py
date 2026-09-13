@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_admin_user
-from app.models.schemas import AdminUserActivity, AdminUserRow, AdminUserUpdate, UserPublic
+from app.models.schemas import AdminUserActivity, AdminUserRow, AdminUserUpdate, ResumeTemplateInfo, UserPublic
 from app.services.admin_users import (
     activity_iso,
     delete_user,
@@ -12,11 +12,23 @@ from app.services.admin_users import (
     user_created_iso,
 )
 from app.services.auth_service import AuthError
+from app.services.template_registry import list_templates_for_users
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-def _row(user, records) -> AdminUserRow:
+def _template_info(template) -> ResumeTemplateInfo:
+    return ResumeTemplateInfo(
+        slug=template.slug,
+        name=template.name,
+        description=template.description,
+        thumbnail_url=f"/static/{template.thumbnail_path}",
+        is_builtin=bool(getattr(template, "is_builtin", False)),
+        is_default=bool(getattr(template, "is_default", False)),
+    )
+
+
+def _row(user, records, templates=None) -> AdminUserRow:
     return AdminUserRow(
         id=user.id,
         email=user.email,
@@ -39,12 +51,15 @@ def _row(user, records) -> AdminUserRow:
             )
             for record in records
         ],
+        templates=[_template_info(t) for t in (templates or [])],
     )
 
 
 @router.get("/users", response_model=list[AdminUserRow])
 async def admin_list_users(_admin: UserPublic = Depends(get_admin_user)) -> list[AdminUserRow]:
-    return [_row(user, records) for user, records in list_users_for_admin()]
+    pairs = list_users_for_admin()
+    templates_by_user = list_templates_for_users([user.id for user, _ in pairs])
+    return [_row(user, records, templates_by_user.get(user.id, [])) for user, records in pairs]
 
 
 @router.patch("/users/{user_id}", response_model=AdminUserRow)
@@ -64,7 +79,8 @@ async def admin_update_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     for user, records in list_users_for_admin():
         if user.id == user_id:
-            return _row(user, records)
+            templates = list_templates_for_users([user_id]).get(user_id, [])
+            return _row(user, records, templates)
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
 
@@ -74,7 +90,8 @@ async def admin_get_user(user_id: int, _admin: UserPublic = Depends(get_admin_us
     if loaded is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
     user, records = loaded
-    return _row(user, records)
+    templates = list_templates_for_users([user_id]).get(user_id, [])
+    return _row(user, records, templates)
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

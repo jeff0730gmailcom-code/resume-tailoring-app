@@ -325,8 +325,11 @@ function App() {
           />
           <div className="flex flex-col gap-2">
             <span className="font-medium text-slate-700">
-              Resume Template <span className="text-red-500">*</span>
+              Your resume templates <span className="text-red-500">*</span>
             </span>
+            <p className="text-sm text-slate-500">
+              Pick one of your templates, or upload a sample CV (PDF/DOCX). You only see templates you own.
+            </p>
             <TemplateGallery
               selectedSlug={selectedTemplateSlug}
               onSelect={setSelectedTemplateSlug}

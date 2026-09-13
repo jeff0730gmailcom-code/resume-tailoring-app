@@ -17,6 +17,7 @@ backend/.env
 backend/temp/*
 !backend/temp/.gitkeep
 backend/data/*.db
+backend/data/user_templates/
 backend/static/template_previews/*
 !backend/static/template_previews/.gitkeep
 

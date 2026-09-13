@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { ApiError, deleteAdminUser, fetchAdminUsers, updateAdminUser } from "../services/api";
-import type { AdminUserRow, UserPublic } from "../types";
+import type { AdminUserRow, ResumeTemplateInfo, UserPublic } from "../types";
 import { formatWhen } from "./ActivityHistory";
+import Modal from "./Modal";
 
 interface UsersPageProps {
   currentUser: UserPublic;
@@ -13,6 +14,75 @@ function statusLabel(user: AdminUserRow): { text: string; className: string } {
   if (user.role === "admin") return { text: "Administrator", className: "bg-brand-50 text-brand-600" };
   if (!user.is_approved) return { text: "Waiting", className: "bg-amber-50 text-amber-800" };
   return { text: "Allowed", className: "bg-emerald-50 text-emerald-800" };
+}
+
+function MemberTemplatesPreview({ templates }: { templates: ResumeTemplateInfo[] }) {
+  const [selectedSlug, setSelectedSlug] = useState(templates[0]?.slug ?? null);
+  const [lightbox, setLightbox] = useState<ResumeTemplateInfo | null>(null);
+  const selected = templates.find((t) => t.slug === selectedSlug) ?? templates[0] ?? null;
+
+  return (
+    <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(180px,260px)]">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+        {templates.map((template) => {
+          const isSelected = template.slug === selected?.slug;
+          return (
+            <button
+              key={template.slug}
+              type="button"
+              onClick={() => setSelectedSlug(template.slug)}
+              className={`overflow-hidden rounded-lg border text-left ${
+                isSelected ? "border-indigo-500 ring-2 ring-indigo-200" : "border-slate-200"
+              }`}
+            >
+              <div className="aspect-[3/4] bg-slate-100">
+                <img
+                  src={template.thumbnailUrl}
+                  alt={template.name}
+                  className="h-full w-full object-cover object-top"
+                  loading="lazy"
+                />
+              </div>
+              <div className="p-2">
+                <p className="truncate text-xs font-medium text-slate-800">{template.name}</p>
+                <p className="mt-0.5 text-[10px] text-slate-500">
+                  {template.isBuiltin ? "Built-in" : "Uploaded"}
+                  {template.isDefault ? " · Default" : ""}
+                </p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Preview</p>
+        {selected ? (
+          <button type="button" onClick={() => setLightbox(selected)} className="w-full text-left">
+            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <img
+                src={selected.thumbnailUrl}
+                alt={`${selected.name} preview`}
+                className="mx-auto max-h-80 w-full object-contain object-top"
+              />
+            </div>
+            <p className="mt-2 text-xs font-semibold text-slate-900">{selected.name}</p>
+            <p className="text-[11px] text-indigo-600">Click to enlarge</p>
+          </button>
+        ) : null}
+      </div>
+
+      {lightbox ? (
+        <Modal onClose={() => setLightbox(null)}>
+          <img
+            src={lightbox.thumbnailUrl}
+            alt={`${lightbox.name} resume template preview`}
+            className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
+          />
+        </Modal>
+      ) : null}
+    </div>
+  );
 }
 
 export default function UsersPage({ currentUser, onViewActivity }: UsersPageProps) {
@@ -143,6 +213,17 @@ export default function UsersPage({ currentUser, onViewActivity }: UsersPageProp
                   Delete
                 </button>
               ) : null}
+            </div>
+
+            <div className="mt-5 border-t border-slate-100 pt-4">
+              <h4 className="text-sm font-semibold text-slate-800">
+                Templates ({user.templates?.length ?? 0})
+              </h4>
+              {(user.templates?.length ?? 0) === 0 ? (
+                <p className="mt-1 text-xs text-slate-500">No templates uploaded yet.</p>
+              ) : (
+                <MemberTemplatesPreview templates={user.templates ?? []} />
+              )}
             </div>
           </article>
         );
