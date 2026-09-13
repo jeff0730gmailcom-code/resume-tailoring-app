@@ -63,6 +63,7 @@ from app.services.template_registry import (
     get_template_for_user,
     list_templates_for_user,
     set_default_template,
+    template_has_jinja_layout,
 )
 from app.services.template_renderer import render_pdf
 from app.services.uploaded_template_render import render_uploaded_template_pdf
@@ -406,7 +407,7 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
 
     pdf_path = file_utils.get_tailored_pdf_path(file_id)
     with perf.stage("PDF Generation"):
-        if getattr(template, "is_builtin", True):
+        if template_has_jinja_layout(template):
             pdf_bytes = await render_pdf(template.slug, tailored)
         else:
             pdf_bytes = await render_uploaded_template_pdf(
@@ -419,8 +420,9 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
-                "Could not render the resume PDF. Install Google Chrome or Microsoft Edge, "
-                "or run `playwright install chromium`."
+                "Could not render the resume PDF for this template. "
+                "For built-in templates, install Chrome/Edge or run `playwright install chromium`. "
+                "For an uploaded sample, re-upload a DOCX (or PDF on a machine with Word) so the layout can be filled."
             ),
         )
     pdf_path.write_bytes(pdf_bytes)

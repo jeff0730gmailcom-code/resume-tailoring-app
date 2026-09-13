@@ -460,6 +460,25 @@ def delete_templates_for_user(user_id: int) -> None:
             session.delete(row)
 
 
+def template_has_jinja_layout(template: ResumeTemplate) -> bool:
+    """True when this template should render via Jinja2 + Playwright.
+
+    Built-in gallery layouts always have an on-disk HTML template. User
+    uploads do not - they are filled as DOCX. Prefer the on-disk Jinja file
+    (and known builtin slugs) over the is_builtin flag alone, so a stale
+    DB flag cannot accidentally route Nemanja/Mateo/... through the
+    uploaded-template path (which used to fall back to Mateo).
+    """
+    slug = (template.slug or "").strip()
+    if not slug:
+        return False
+    if slug in _BUILTIN_SLUGS:
+        return True
+    if (_TEMPLATES_DIR / slug / "template.html.jinja2").exists():
+        return True
+    return bool(getattr(template, "is_builtin", False)) and not getattr(template, "source_path", "")
+
+
 def resolve_working_docx(template: ResumeTemplate) -> Path | None:
     """Return the DOCX used to fill an uploaded template, if available."""
     if template.is_builtin or not template.source_path:

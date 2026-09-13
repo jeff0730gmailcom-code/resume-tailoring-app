@@ -87,15 +87,22 @@ def _apply_skills(segments: DocxSegments, skills: SkillCategories) -> None:
 def _apply_jobs(segments: DocxSegments, resume: TailoredResumeContent) -> None:
     for job_index, job_seg in enumerate(segments.jobs):
         if job_index >= len(resume.experience):
-            for paragraph in job_seg.bullet_paragraphs:
+            for paragraph in job_seg.header_paragraphs + job_seg.bullet_paragraphs:
                 _set_paragraph_text(paragraph, "")
             continue
         job = resume.experience[job_index]
-        if job_seg.header_paragraphs:
-            title_line = " | ".join(part for part in (job.title, job.company, job.dates) if part)
-            _set_paragraph_text(job_seg.header_paragraphs[0], title_line)
-            for paragraph in job_seg.header_paragraphs[1:]:
+        headers = job_seg.header_paragraphs
+        # Preserve multi-line headers (common in Nemanja-style samples):
+        # line 1 = "Company | dates", line 2 = job title.
+        if len(headers) >= 2:
+            company_dates = " | ".join(part for part in (job.company, job.dates) if part)
+            _set_paragraph_text(headers[0], company_dates or job.title)
+            _set_paragraph_text(headers[1], job.title if company_dates else (job.company or ""))
+            for paragraph in headers[2:]:
                 _set_paragraph_text(paragraph, "")
+        elif len(headers) == 1:
+            title_line = " | ".join(part for part in (job.title, job.company, job.dates) if part)
+            _set_paragraph_text(headers[0], title_line)
         bullets = [b.strip() for b in job.bullets if b and b.strip()]
         for bullet_index, paragraph in enumerate(job_seg.bullet_paragraphs):
             if bullet_index < len(bullets):

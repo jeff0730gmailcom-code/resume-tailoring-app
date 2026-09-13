@@ -1,9 +1,8 @@
 """Render a filled DOCX (uploaded template) to PDF without requiring Word.
 
-Primary path still prefers Word COM when available. When Word is missing
-or fails (common on Railway/Linux and some local setups), convert the
-filled DOCX to HTML and print it with Playwright — the same engine used
-for built-in Jinja templates.
+Keeps the uploaded sample's own layout. Never substitutes a different
+built-in Jinja design (e.g. Mateo) — that was causing tailored output to
+look nothing like the selected sample.
 """
 from __future__ import annotations
 
@@ -15,11 +14,9 @@ from app.models.schemas import TailoredResumeContent
 from app.services.docx_template_fill import fill_docx_template
 from app.services.docx_to_pdf import convert_docx_to_pdf, convert_to_docx
 from app.services.template_registry import resolve_working_docx
-from app.services.template_renderer import render_html_to_pdf, render_pdf
+from app.services.template_renderer import render_html_to_pdf
 
 logger = logging.getLogger(__name__)
-
-_FALLBACK_BUILTIN_SLUG = "mateo"
 
 
 def _docx_to_print_html(docx_path: Path) -> str:
@@ -37,25 +34,47 @@ def _docx_to_print_html(docx_path: Path) -> str:
 <head>
   <meta charset="utf-8" />
   <style>
-    @page {{ size: A4; margin: 14mm 16mm; }}
+    @page {{ size: A4; margin: 16mm 14mm; }}
     html, body {{ margin: 0; padding: 0; }}
     body {{
-      font-family: Calibri, "Segoe UI", Arial, sans-serif;
-      font-size: 11pt;
-      line-height: 1.35;
-      color: #222;
+      font-family: "Segoe UI", Calibri, Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+      color: #1a1a1a;
     }}
     p {{ margin: 0 0 0.35em; }}
-    ul {{ margin: 0.2em 0 0.6em 1.2em; padding: 0; }}
-    li {{ margin: 0 0 0.2em; }}
+    strong {{ font-weight: 700; }}
+    ul {{ margin: 0.25em 0 0.7em 1.15em; padding: 0; }}
+    li {{ margin: 0 0 0.25em; }}
     table {{ border-collapse: collapse; width: 100%; }}
     td, th {{ vertical-align: top; padding: 0; }}
+    hr {{ border: none; border-top: 1px solid #999; margin: 10px 0 6px; }}
   </style>
 </head>
 <body>
 {body}
 </body>
 </html>"""
+
+
+async def _ensure_working_docx(template) -> Path | None:
+    working = resolve_working_docx(template)
+    if working is not None and working.exists():
+        return working
+
+    source = Path(template.source_path) if getattr(template, "source_path", None) else None
+    if source is None or not source.exists():
+        return None
+
+    working = source.parent / "working.docx"
+    if source.suffix.lower() == ".docx":
+        shutil.copy2(source, working)
+        return working if working.exists() else None
+
+    ok = await convert_to_docx(source, working)
+    if ok and working.exists():
+        return working
+    return None
 
 
 async def render_uploaded_template_pdf(
@@ -65,70 +84,45 @@ async def render_uploaded_template_pdf(
     tailored: TailoredResumeContent,
     work_dir: Path,
 ) -> bytes | None:
-    """Fill the uploaded sample CV and produce PDF bytes.
-
-    Order:
-    1. Ensure a working DOCX exists (convert PDF→DOCX via Word when needed)
-    2. Fill tailored content into that DOCX
-    3. Word DOCX→PDF when available
-    4. mammoth HTML → Playwright PDF (no Word)
-    5. Built-in Mateo Jinja → Playwright PDF (last resort so preview never dies)
-    """
+    """Fill the uploaded sample CV and produce PDF bytes in that layout."""
     work_dir.mkdir(parents=True, exist_ok=True)
     filled_docx = work_dir / "filled_template.docx"
     filled_pdf = work_dir / "filled_template.pdf"
 
-    working = resolve_working_docx(template)
-    if working is None or not working.exists():
-        source = Path(template.source_path) if getattr(template, "source_path", None) else None
-        if source is not None and source.exists():
-            working = source.parent / "working.docx"
-            if source.suffix.lower() == ".docx":
-                shutil.copy2(source, working)
-            else:
-                ok = await convert_to_docx(source, working)
-                if not ok or not working.exists():
-                    working = None
-        else:
-            working = None
-
-    if working is not None and working.exists():
-        try:
-            fill_docx_template(working, filled_docx, tailored)
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to fill uploaded template %s", getattr(template, "slug", "?"))
-            filled_docx = None  # type: ignore[assignment]
-    else:
-        filled_docx = None  # type: ignore[assignment]
-        logger.warning(
-            "No working DOCX for uploaded template %s — falling back to built-in layout",
+    working = await _ensure_working_docx(template)
+    if working is None:
+        logger.error(
+            "Uploaded template %s has no usable DOCX source — cannot preserve its layout",
             getattr(template, "slug", "?"),
         )
+        return None
 
-    if filled_docx is not None and filled_docx.exists():
-        # 1) Word COM when present
-        ok = await convert_docx_to_pdf(filled_docx, filled_pdf)
-        if ok and filled_pdf.exists() and filled_pdf.stat().st_size > 0:
-            return filled_pdf.read_bytes()
+    try:
+        fill_docx_template(working, filled_docx, tailored)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to fill uploaded template %s", getattr(template, "slug", "?"))
+        return None
 
-        # 2) mammoth + Playwright (no Word)
-        try:
-            html = _docx_to_print_html(filled_docx)
-            pdf_bytes = await render_html_to_pdf(html)
-            if pdf_bytes:
-                filled_pdf.write_bytes(pdf_bytes)
-                return pdf_bytes
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "mammoth/Playwright PDF path failed for uploaded template %s",
-                getattr(template, "slug", "?"),
-                exc_info=True,
-            )
+    if not filled_docx.exists():
+        return None
 
-    # 3) Reliable built-in layout so preview/download still work
-    logger.warning(
-        "Using built-in '%s' layout for uploaded template %s",
-        _FALLBACK_BUILTIN_SLUG,
-        getattr(template, "slug", "?"),
-    )
-    return await render_pdf(_FALLBACK_BUILTIN_SLUG, tailored)
+    # 1) Word COM when present (best fidelity to the sample)
+    ok = await convert_docx_to_pdf(filled_docx, filled_pdf)
+    if ok and filled_pdf.exists() and filled_pdf.stat().st_size > 0:
+        return filled_pdf.read_bytes()
+
+    # 2) mammoth HTML → Playwright (keeps sample structure, no Word)
+    try:
+        html = _docx_to_print_html(filled_docx)
+        pdf_bytes = await render_html_to_pdf(html)
+        if pdf_bytes:
+            filled_pdf.write_bytes(pdf_bytes)
+            return pdf_bytes
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "mammoth/Playwright PDF path failed for uploaded template %s",
+            getattr(template, "slug", "?"),
+            exc_info=True,
+        )
+
+    return None
