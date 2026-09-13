@@ -8,8 +8,6 @@ interface ActivityHistoryProps {
   memberId?: number | null;
 }
 
-const PAGE_SIZE = 10;
-
 const fieldClass =
   "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20";
 
@@ -53,14 +51,10 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
-  const [profile, setProfile] = useState("");
-  const [status, setStatus] = useState("");
   const [jobTitle, setJobTitle] = useState("");
   const [company, setCompany] = useState("");
-  const [description, setDescription] = useState("");
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
-  const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
@@ -96,43 +90,22 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
     };
   }, [currentUser.email, currentUser.name, memberId, viewingOther]);
 
-  const profiles = useMemo(() => {
-    const values = new Set(rows.map((row) => row.main_stack).filter(Boolean));
-    return [...values].sort((a, b) => a.localeCompare(b));
-  }, [rows]);
-
   const filtered = useMemo(() => {
     const titleQ = jobTitle.trim().toLowerCase();
     const companyQ = company.trim().toLowerCase();
-    const descQ = description.trim().toLowerCase();
     return rows.filter((row) => {
-      if (profile && row.main_stack !== profile) return false;
-                      if (status === "saved" && !row.cv_saved) return false;
       if (titleQ && !row.candidate_name.toLowerCase().includes(titleQ)) return false;
       if (companyQ && !row.company_name.toLowerCase().includes(companyQ)) return false;
-      if (
-        descQ &&
-        !row.job_link.toLowerCase().includes(descQ) &&
-        !row.generated_filename.toLowerCase().includes(descQ) &&
-        !row.main_stack.toLowerCase().includes(descQ)
-      ) {
-        return false;
-      }
       const created = dayStamp(row.created_at);
       if (createdFrom && created && created < createdFrom) return false;
       if (createdTo && created && created > createdTo) return false;
       return true;
     });
-  }, [rows, profile, status, jobTitle, company, description, createdFrom, createdTo]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount);
-  const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  }, [rows, jobTitle, company, createdFrom, createdTo]);
 
   useEffect(() => {
-    setPage(1);
     setSelectedIds(new Set());
-  }, [profile, status, jobTitle, company, description, createdFrom, createdTo, rows]);
+  }, [jobTitle, company, createdFrom, createdTo, rows]);
 
   function toggleRow(id: number) {
     setSelectedIds((current) => {
@@ -143,15 +116,10 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
     });
   }
 
-  function togglePage() {
-    const ids = pageRows.map((row) => row.id);
-    const allSelected = ids.every((id) => selectedIds.has(id));
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (allSelected) ids.forEach((id) => next.delete(id));
-      else ids.forEach((id) => next.add(id));
-      return next;
-    });
+  function toggleAllVisible() {
+    const ids = filtered.map((row) => row.id);
+    const allSelected = ids.length > 0 && ids.every((id) => selectedIds.has(id));
+    setSelectedIds(allSelected ? new Set() : new Set(ids));
   }
 
   function selectAllMatching() {
@@ -159,11 +127,8 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
   }
 
   function resetFilters() {
-    setProfile("");
-    setStatus("");
     setJobTitle("");
     setCompany("");
-    setDescription("");
     setCreatedFrom("");
     setCreatedTo("");
   }
@@ -180,7 +145,7 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
     }
   }
 
-  const pageSelectedCount = pageRows.filter((row) => selectedIds.has(row.id)).length;
+  const allVisibleSelected = filtered.length > 0 && filtered.every((row) => selectedIds.has(row.id));
 
   return (
     <div className="flex flex-col gap-5">
@@ -195,26 +160,7 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-          <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-            Profile
-            <select value={profile} onChange={(event) => setProfile(event.target.value)} className={fieldClass}>
-              <option value="">All profiles</option>
-              {profiles.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-            Status
-            <select value={status} onChange={(event) => setStatus(event.target.value)} className={fieldClass}>
-              <option value="">All statuses</option>
-              <option value="generated">Generated</option>
-              <option value="saved">Saved CV</option>
-            </select>
-          </label>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
           <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
             Job title
             <input
@@ -234,23 +180,14 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
             />
           </label>
           <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-            Description
-            <input
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Link or file"
-              className={fieldClass}
-            />
+            Created from
+            <input type="date" value={createdFrom} onChange={(event) => setCreatedFrom(event.target.value)} className={fieldClass} />
           </label>
-          <div className="flex items-end gap-2">
-            <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium text-slate-500">
-              Created from
-              <input type="date" value={createdFrom} onChange={(event) => setCreatedFrom(event.target.value)} className={fieldClass} />
-            </label>
-            <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium text-slate-500">
-              Created to
-              <input type="date" value={createdTo} onChange={(event) => setCreatedTo(event.target.value)} className={fieldClass} />
-            </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+            Created to
+            <input type="date" value={createdTo} onChange={(event) => setCreatedTo(event.target.value)} className={fieldClass} />
+          </label>
+          <div className="flex items-end">
             <button
               type="button"
               onClick={resetFilters}
@@ -268,7 +205,8 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
         <p>
-          {selectedIds.size} of {filtered.length} selected — {pageRows.length} on this page
+          {selectedIds.size} of {filtered.length} selected
+          {rows.length > 0 ? ` · showing ${filtered.length} of ${rows.length}` : ""}
         </p>
         <button
           type="button"
@@ -290,7 +228,7 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
         </div>
       ) : null}
 
-      {!isLoading && pageRows.length > 0 ? (
+      {!isLoading && filtered.length > 0 ? (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[880px] text-left text-sm">
@@ -299,8 +237,8 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
                   <th className="w-10 px-4 py-3">
                     <input
                       type="checkbox"
-                      checked={pageRows.length > 0 && pageSelectedCount === pageRows.length}
-                      onChange={togglePage}
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
                       className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
                     />
                   </th>
@@ -315,7 +253,7 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
                 </tr>
               </thead>
               <tbody>
-                {pageRows.map((row) => (
+                {filtered.map((row) => (
                   <tr key={row.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
                     <td className="px-4 py-4">
                       <input
@@ -397,39 +335,9 @@ export default function ActivityHistory({ currentUser, memberId = null }: Activi
               </tbody>
             </table>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-500">
-            <p>
-              {filtered.length} application{filtered.length === 1 ? "" : "s"} — page {currentPage} of {pageCount}
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={currentPage <= 1}
-                onClick={() => setPage((value) => Math.max(1, value - 1))}
-                className="rounded-lg border border-slate-200 px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
-              >
-                ‹
-              </button>
-              <select
-                value={currentPage}
-                onChange={(event) => setPage(Number(event.target.value))}
-                className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm"
-              >
-                {Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => (
-                  <option key={number} value={number}>
-                    Page {number}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                disabled={currentPage >= pageCount}
-                onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
-                className="rounded-lg border border-slate-200 px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
-              >
-                ›
-              </button>
-            </div>
+          <div className="border-t border-slate-200 px-4 py-3 text-sm text-slate-500">
+            {filtered.length} application{filtered.length === 1 ? "" : "s"}
+            {filtered.length !== rows.length ? ` (filtered from ${rows.length})` : ""}
           </div>
         </div>
       ) : null}

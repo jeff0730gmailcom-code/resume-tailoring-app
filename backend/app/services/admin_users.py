@@ -54,7 +54,7 @@ def list_users_for_admin() -> list[tuple[User, list[ResumeRecord]]]:
                 session.query(ResumeRecord)
                 .filter_by(user_id=user.id)
                 .order_by(ResumeRecord.id.desc())
-                .limit(100)
+                .limit(200)
                 .all()
             )
             session.expunge(user)
