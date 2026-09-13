@@ -28,6 +28,7 @@ app/services/template_renderer.py and app/services/template_registry.py).
 """
 import asyncio
 import logging
+import shutil
 from pathlib import Path
 
 from docx import Document as DocxDocument
@@ -43,8 +44,7 @@ from app.services.ai_tailor import AiTailoringError, tailor_resume
 from app.services.ats_scorer import compute_ats_match
 from app.services.cv_parser import CvParsingError, extract_text_from_cv
 from app.services.cv_structurer import structure_cv
-from app.services.docx_template_fill import fill_docx_template
-from app.services.docx_to_pdf import convert_docx_to_pdf, convert_to_docx
+from app.services.docx_to_pdf import convert_to_docx
 from app.services.filename_generator import generate_resume_cv_stem, generate_resume_filename, generate_resume_folder_name
 from app.services.jd_analyzer import analyze_job_description
 from app.services.resume_matcher import match_resume_to_jd
@@ -62,10 +62,10 @@ from app.services.template_registry import (
     get_template_by_id,
     get_template_for_user,
     list_templates_for_user,
-    resolve_working_docx,
     set_default_template,
 )
 from app.services.template_renderer import render_pdf
+from app.services.uploaded_template_render import render_uploaded_template_pdf
 from app.utils import file_utils
 from app.utils.timing import PerfReport
 
@@ -409,42 +409,22 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
         if getattr(template, "is_builtin", True):
             pdf_bytes = await render_pdf(template.slug, tailored)
         else:
-            pdf_bytes = await _render_uploaded_template_pdf(file_id, template, tailored)
+            pdf_bytes = await render_uploaded_template_pdf(
+                file_id=file_id,
+                template=template,
+                tailored=tailored,
+                work_dir=file_utils.get_file_dir(file_id),
+            )
     if pdf_bytes is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
-                "Could not render the resume PDF. For built-in templates install Chrome/Edge "
-                "or run `playwright install chromium`. For uploaded templates, Microsoft Word "
-                "is required to convert the sample CV."
+                "Could not render the resume PDF. Install Google Chrome or Microsoft Edge, "
+                "or run `playwright install chromium`."
             ),
         )
     pdf_path.write_bytes(pdf_bytes)
     return pdf_path, record
-
-
-async def _render_uploaded_template_pdf(file_id: str, template, tailored) -> bytes | None:
-    working = resolve_working_docx(template)
-    if working is None or not working.exists():
-        source = Path(template.source_path) if template.source_path else None
-        if source is None or not source.exists():
-            return None
-        working = source.parent / "working.docx"
-        ok = await convert_to_docx(source, working)
-        if not ok or not working.exists():
-            return None
-
-    filled_docx = file_utils.get_file_dir(file_id) / "filled_template.docx"
-    filled_pdf = file_utils.get_file_dir(file_id) / "filled_template.pdf"
-    try:
-        fill_docx_template(working, filled_docx, tailored)
-    except Exception:  # noqa: BLE001
-        logger.exception("Failed to fill uploaded template %s", template.slug)
-        return None
-    ok = await convert_docx_to_pdf(filled_docx, filled_pdf)
-    if not ok or not filled_pdf.exists():
-        return None
-    return filled_pdf.read_bytes()
 
 
 @router.get("/preview/{file_id}")
@@ -500,11 +480,16 @@ async def download_resume(
     if format == "docx":
         source_path = file_utils.get_tailored_docx_path(file_id)
         with perf.stage("DOCX Generation"):
-            docx_ok = await convert_to_docx(pdf_path, source_path)
+            filled = file_utils.get_file_dir(file_id) / "filled_template.docx"
+            if filled.exists() and filled.stat().st_size > 0:
+                shutil.copy2(filled, source_path)
+                docx_ok = True
+            else:
+                docx_ok = await convert_to_docx(pdf_path, source_path)
         if not docx_ok:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Could not convert the rendered PDF to DOCX. Make sure Microsoft Word is installed.",
+                detail="Could not build the DOCX download. Try Download PDF, or install Microsoft Word for DOCX export.",
             )
         inner_name = f"{cv_stem}.docx"
     else:

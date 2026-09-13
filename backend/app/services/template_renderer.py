@@ -173,12 +173,18 @@ async def render_pdf(slug: str, resume: TailoredResumeContent) -> bytes | None:
         return None
 
     html = render_html(slug, resume)
+    return await render_html_to_pdf(html)
+
+
+async def render_html_to_pdf(html: str) -> bytes | None:
+    """Render arbitrary HTML to A4 PDF bytes via the warm Playwright browser."""
+    if _browser is None:
+        logger.error("render_html_to_pdf called but Playwright browser is not running")
+        return None
+
     page = await _browser.new_page()
     try:
         await page.set_content(html, wait_until="load")
-        # No margin= here on purpose - the template's own CSS "@page" rule
-        # is the sole source of page margins (see the module docstring
-        # above the removed _PAGE_MARGINS constant for why).
         return await page.pdf(format="A4", print_background=True)
     finally:
         await page.close()

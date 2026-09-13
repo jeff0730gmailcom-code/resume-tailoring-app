@@ -30,6 +30,10 @@ playwright==1.62.0
 # startup (see app/services/template_registry.py) - no browser involved.
 pymupdf==1.28.0
 
+# DOCX → HTML for uploaded-template PDF preview when Word COM is unavailable
+# (see app/services/uploaded_template_render.py).
+mammoth==1.11.0
+
 # Windows-only: drives Microsoft Word via COM to convert a rendered resume
 # PDF into an editable .docx download (see app/services/docx_to_pdf.py).
 # Requires Microsoft Word to be installed on the host machine.
