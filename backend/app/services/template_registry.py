@@ -317,16 +317,16 @@ def list_jinja_layout_slugs() -> list[str]:
 def detect_layout_slug(*hints: str) -> str:
     """Pick a starter Jinja for a new upload from its filename/display name.
 
-    Only active gallery builtins (mateo/marek/nemanja/quang) — never inactive
-    coded ``dejan`` (that stole black/white Dejan samples). The matched layout
-    is COPIED into the upload folder as that template's own Jinja file;
-    rendering always uses the per-upload file, not the gallery path.
+    Matches any on-disk layout (goran, aleksandra, quang, mateo, …) by word
+    boundary so \"goran python\" → goran and \"aleksandra python\" → aleksandra.
+    The matched layout is COPIED into that upload's own folder; rendering
+    always uses the per-upload file (never another upload's Jinja).
     """
     raw = " ".join(h for h in hints if h)
     if not raw:
         return ""
     haystack = _NAME_FROM_FILENAME_RE.sub(" ", raw).lower()
-    for slug in sorted(_BUILTIN_SLUGS, key=len, reverse=True):
+    for slug in sorted(list_jinja_layout_slugs(), key=len, reverse=True):
         if re.search(rf"\b{re.escape(slug.lower())}\b", haystack):
             return slug
     return ""
@@ -335,16 +335,26 @@ def detect_layout_slug(*hints: str) -> str:
 def infer_upload_layout_slug(*hints: str, sample_text: str = "") -> str:
     """Choose which Jinja starter to copy into a new upload folder.
 
-    Prefer name match to gallery builtins; otherwise sniff sample text
-    (Quang-style \"Professional Summary\" / \"Work Experience\"). Default
-    is the generic uploaded (black/white) starter — never green dejan.
+    Name match first (goran/aleksandra/quang/…). Special-case dejan: if the
+    sample looks like the black/white master CV (\"Skills & Abilities\"), use
+    the uploaded starter — do not steal the green coded dejan look.
     """
     matched = detect_layout_slug(*hints)
-    if matched:
-        return matched
     lower = (sample_text or "").lower()
+
     if "professional summary" in lower and "work experience" in lower:
         return "quang"
+
+    if matched == "dejan":
+        if "skills & abilities" in lower or "skills and abilities" in lower:
+            return "uploaded"
+        return "dejan"
+
+    if matched:
+        return matched
+
+    if "skills & abilities" in lower or "skills and abilities" in lower:
+        return "uploaded"
     return "uploaded"
 
 
@@ -352,7 +362,7 @@ def resolve_render_layout_slug(template: ResumeTemplate) -> str:
     """Named Jinja slug for PDF render, or '' to use the upload's own Jinja file.
 
     Private uploads ALWAYS return '' so preview/download use that upload's
-    own ``template.html.jinja2`` (a per-upload copy). Built-in gallery rows
+    own ``template.html.jinja2`` (distinct per upload). Built-in gallery rows
     use their coded slug.
     """
     if getattr(template, "source_path", None) and not getattr(template, "is_builtin", False):
@@ -409,21 +419,20 @@ def uploaded_jinja_path(template: ResumeTemplate) -> Path | None:
 
 
 def ensure_uploaded_jinja_layout(template: ResumeTemplate) -> Path | None:
-    """Ensure this upload has its own Jinja file (create from its layout_slug if missing)."""
+    """Ensure this upload has its own Jinja file (create from inferred layout if missing)."""
     if not getattr(template, "source_path", None):
         return None
     dest_dir = Path(template.source_path).parent
     if not dest_dir.exists():
         return None
     try:
-        layout = (getattr(template, "layout_slug", None) or "").strip() or "uploaded"
-        if layout not in _BUILTIN_SLUGS and layout != "uploaded":
-            layout = (
-                infer_upload_layout_slug(
-                    getattr(template, "name", ""),
-                    getattr(template, "slug", ""),
-                    Path(template.source_path).name,
-                )
+        layout = (getattr(template, "layout_slug", None) or "").strip()
+        if not layout or layout not in set(list_jinja_layout_slugs()) | {"uploaded"}:
+            layout = infer_upload_layout_slug(
+                getattr(template, "name", ""),
+                getattr(template, "slug", ""),
+                Path(template.source_path).name,
+                sample_text=_sample_text_hint(Path(template.source_path)),
             )
         return install_uploaded_jinja_layout(dest_dir, layout, force=False)
     except Exception:  # noqa: BLE001

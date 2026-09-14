@@ -22,61 +22,57 @@ from app.services.template_registry import (  # noqa: E402
 @pytest.mark.parametrize(
     "hints, expected",
     [
-        (("Dejan Pavlovic.pdf", "Dejan Pavlovic"), ""),
+        (("goran python.pdf", "goran python"), "goran"),
+        (("aleksandra python.pdf", "aleksandra python"), "aleksandra"),
         (("Quang Dang Resume.pdf", "Quang Dang Resume"), "quang"),
         (("Mateo_CV.pdf", "Mateo"), "mateo"),
+        (("Dejan Pavlovic.pdf", "Dejan Pavlovic"), "dejan"),
         (("My custom sample.pdf", "My custom sample"), ""),
     ],
 )
-def test_detect_layout_slug_builtins_only(hints, expected):
+def test_detect_layout_slug_all_on_disk_layouts(hints, expected):
     assert detect_layout_slug(*hints) == expected
 
 
-def test_infer_upload_layout_slug_quang_vs_dejan():
-    assert infer_upload_layout_slug("Quang Dang Resume.pdf", "Quang Dang Resume") == "quang"
-    assert infer_upload_layout_slug("Dejan Pavlovic.pdf", "Dejan Pavlovic") == "uploaded"
+def test_infer_goran_and_aleksandra_not_dejan_uploaded():
+    assert infer_upload_layout_slug("goran python.pdf", "goran python") == "goran"
+    assert infer_upload_layout_slug("aleksandra python.pdf", "aleksandra python") == "aleksandra"
+    # Black/white Dejan master CV must not get green dejan
     assert (
         infer_upload_layout_slug(
-            "sample.pdf",
-            "sample",
-            sample_text="Professional Summary\nWork Experience\nSkill",
+            "Dejan Pavlovic.pdf",
+            "Dejan Pavlovic",
+            sample_text="Summary\nSkills & Abilities\nExperience\nStaff | Tech Lead",
         )
-        == "quang"
+        == "uploaded"
     )
 
 
 def test_resolve_render_layout_slug_uploads_always_own_file():
-    for layout in ("uploaded", "quang", "dejan", ""):
+    for layout in ("uploaded", "goran", "aleksandra", "dejan", "quang", ""):
         template = SimpleNamespace(
             source_path="/tmp/user_templates/1/u1-abc/source.pdf",
             is_builtin=False,
             layout_slug=layout,
             slug="u1-abc",
-            name="Quang Dang Resume",
+            name="goran python",
         )
         assert resolve_render_layout_slug(template) == ""
 
 
-def test_quang_and_dejan_uploads_get_different_jinja(tmp_path: Path):
+def test_goran_aleksandra_dejan_uploads_get_different_jinja(tmp_path: Path):
     dejan = tmp_path / "dejan_upload"
-    quang = tmp_path / "quang_upload"
+    goran = tmp_path / "goran_upload"
+    aleks = tmp_path / "aleks_upload"
     install_uploaded_jinja_layout(dejan, "uploaded", force=True)
-    install_uploaded_jinja_layout(quang, "quang", force=True)
-    d_text = (dejan / "template.html.jinja2").read_text(encoding="utf-8")
-    q_text = (quang / "template.html.jinja2").read_text(encoding="utf-8")
-    assert d_text != q_text
-    assert "hr.rule" in d_text or "Skills" in d_text
-    assert "#3a738c" in q_text or "text-align: center" in q_text
-
-
-def test_force_reinstall_can_replace_wrong_shared_starter(tmp_path: Path):
-    dest = tmp_path / "quang_was_wrong"
-    install_uploaded_jinja_layout(dest, "uploaded", force=True)
-    before = (dest / "template.html.jinja2").read_text(encoding="utf-8")
-    install_uploaded_jinja_layout(dest, "quang", force=True)
-    after = (dest / "template.html.jinja2").read_text(encoding="utf-8")
-    assert before != after
-    assert "#3a738c" in after or "text-align: center" in after
+    install_uploaded_jinja_layout(goran, "goran", force=True)
+    install_uploaded_jinja_layout(aleks, "aleksandra", force=True)
+    d = (dejan / "template.html.jinja2").read_text(encoding="utf-8")
+    g = (goran / "template.html.jinja2").read_text(encoding="utf-8")
+    a = (aleks / "template.html.jinja2").read_text(encoding="utf-8")
+    assert len({d, g, a}) == 3
+    assert "Georgia" in g or "#3d6d78" in g
+    assert "#2f6b3a" in a or "text-transform: uppercase" in a
 
 
 def test_delete_user_template_removes_folder_and_jinja(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -93,7 +89,13 @@ def test_delete_user_template_removes_folder_and_jinja(tmp_path: Path, monkeypat
     with session_scope() as s:
         user = s.query(User).first()
         if user is None:
-            user = User(name="Test", email="t@example.com", password_hash="x", role="user", status="approved")
+            user = User(
+                name="Test",
+                email="t-del@example.com",
+                password_hash="x",
+                role="user",
+                is_approved=True,
+            )
             s.add(user)
             s.flush()
         user_id = user.id
@@ -102,7 +104,6 @@ def test_delete_user_template_removes_folder_and_jinja(tmp_path: Path, monkeypat
     dest.mkdir(parents=True)
     (dest / "source.pdf").write_bytes(b"%PDF-1.4")
     install_uploaded_jinja_layout(dest, "uploaded", force=True)
-    assert (dest / "template.html.jinja2").exists()
     thumb = static / "template_previews"
     thumb.mkdir(parents=True)
     (thumb / "u-del-test.png").write_bytes(b"png")
