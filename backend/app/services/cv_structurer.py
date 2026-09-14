@@ -89,7 +89,8 @@ _TITLE_KEYWORD_RE = re.compile(
     r"\b(engineer|developer|designer|manager|lead|architect|analyst|scientist|"
     r"specialist|consultant|director|officer|administrator|intern|coordinator|"
     r"strategist|producer|writer|marketer|recruiter|accountant|technician|"
-    r"president|executive|founder|owner)\b",
+    r"president|executive|founder|owner|principal|staff|senior|junior|head|"
+    r"chief|cto|ceo|cfo|coo|vp|sre|swe|devops|fullstack|full[\s-]?stack)\b",
     re.IGNORECASE,
 )
 # Similarly disambiguates a degree line from an institution line when a
@@ -162,15 +163,29 @@ def split_title_company(text: str) -> tuple[str, str]:
 
 
 def _split_piped_title_company(text: str) -> tuple[str, str] | None:
-    """Split a 'Title | extra | Company' header on pipes only.
+    """Split a job header into (title, company).
 
-    The last segment is the employer. Earlier segments stay in the title so
-    specializations like 'DevOps (Cloud & Automation Systems)' or 'Tech lead'
-    are not mistaken for the company — and hyphens inside parentheses
-    (e.g. 'Backend-Focused Systems') are not treated as separators.
+    Prefer \"Title / Company\" (slash) when present — Dejan-style headers like
+    \"Staff | Tech Lead Full Stack Engineer /TechBiz\" must keep the full title
+    left of the slash. Pipe-splitting alone wrongly treated \"Tech Lead…\" as
+    the employer.
     """
-    parts = [p.strip() for p in re.split(r"\s*\|\s*", text or "") if p.strip()]
+    raw = " ".join((text or "").split())
+    if not raw:
+        return None
+
+    if "/" in raw:
+        title_part, company_part = split_title_company(raw)
+        title_part = title_part.rstrip(" /").strip()
+        company_part = company_part.strip()
+        if title_part and company_part and not _TITLE_KEYWORD_RE.search(company_part):
+            return title_part, company_part
+
+    parts = [p.strip() for p in re.split(r"\s*\|\s*", raw) if p.strip()]
     if len(parts) < 2:
+        return None
+    # Last segment is employer only when it does not look like another title bit.
+    if _TITLE_KEYWORD_RE.search(parts[-1]) and not _looks_like_company_name(parts[-1]):
         return None
     return " | ".join(parts[:-1]), parts[-1]
 
@@ -206,10 +221,35 @@ def structure_cv(file_path: Path, cv_text: str, document: DocumentObject | None 
 
 
 def _finalize_master_cv(structured: MasterCvData, cv_text: str) -> MasterCvData:
-    """Strip extraction tofu from every field, then attach cleaned raw_text."""
+    """Strip extraction tofu from every field, then attach cleaned raw_text.
+
+    If any experience entry is missing a usable title or company, mark the
+    result unstructured so /tailor uses the safer raw-text path instead of
+    locking blank/mangled headers into every tailored PDF.
+    """
     data = strip_broken_from_tree(structured.model_dump())
     data["raw_text"] = cv_text
-    return apply_candidate_employer_overrides(MasterCvData.model_validate(data))
+    result = apply_candidate_employer_overrides(MasterCvData.model_validate(data))
+    if result.is_structured and not _experience_headers_reliable(result.experience):
+        result.is_structured = False
+    return result
+
+
+def _experience_headers_reliable(experience: list[CvExperienceEntry]) -> bool:
+    """True only when every job has a distinct non-empty title and company."""
+    if not experience:
+        return False
+    for entry in experience:
+        title = (entry.title or "").strip()
+        company = (entry.company or "").strip()
+        if not title or not company:
+            return False
+        if title.lower() == company.lower():
+            return False
+        # Soft-fill sometimes copies a full date-bearing header into company.
+        if _FULL_DATE_RANGE_RE.search(company) and _TITLE_KEYWORD_RE.search(company):
+            return False
+    return True
 
 
 def _structure_docx(file_path: Path, document: DocumentObject | None) -> MasterCvData | None:
@@ -219,10 +259,9 @@ def _structure_docx(file_path: Path, document: DocumentObject | None) -> MasterC
         return None
 
     experience = [_parse_job_segment(job) for job in segments.jobs]
-    # Soften company isolation: blank company used to abort the entire
-    # structured (fast) path and fall back to the raw-text AI path. Prefer
-    # a header-line placeholder so we still get lite-schema speed - company
-    # names are never rewritten by the AI anyway (see resume_validator.py).
+    # Only fill blank company from a *second* header line that looks like an
+    # employer — never copy the title line into company (that locked mangled
+    # headers into tailored PDFs for arbitrary CVs).
     for i, entry in enumerate(experience):
         if entry.company.strip():
             continue
@@ -231,8 +270,14 @@ def _structure_docx(file_path: Path, document: DocumentObject | None) -> MasterC
             for p in segments.jobs[i].header_paragraphs
             if p.text.strip()
         ]
-        fallback = header_bits[1] if len(header_bits) > 1 else (header_bits[0] if header_bits else "")
-        entry.company = clip_job_company(_clean_extracted_text(fallback), entry.title)
+        for bit in header_bits[1:]:
+            candidate = clip_job_company(_clean_extracted_text(bit), entry.title)
+            if candidate and candidate.lower() != (entry.title or "").lower():
+                entry.company = candidate
+                break
+
+    if not _experience_headers_reliable(experience):
+        return None
 
     return MasterCvData(
         contact=_extract_contact(doc),
@@ -302,8 +347,14 @@ def _parse_job_header(header_lines: list[str]) -> tuple[str, str, str]:
             return second, company, dates
         # Company sits on its own next line — keep the whole first line as
         # the title (including 'Title | specialty') rather than treating a
-        # specialization as the employer.
+        # specialization as the employer. When PDF wraps \"/1648\" onto the
+        # title and \"Factory\" onto the next line, rebuild \"1648 Factory\".
         if _looks_like_company_name(second):
+            dangling = re.search(r"\s*/\s*(\d{2,5})\s*$", first)
+            if dangling:
+                title = first[: dangling.start()].strip(" |/-–—,") or first
+                company = f"{dangling.group(1)} {second}".strip()
+                return title, company, dates
             return first, second, dates
         piped = _split_piped_title_company(first)
         if piped:
@@ -623,28 +674,39 @@ _ACTION_VERB_RE = re.compile(rf"\s+(?=(?:{_ACTION_VERBS})\b)", re.IGNORECASE)
 _DUTY_START_RE = re.compile(rf"^(?:{_ACTION_VERBS})\b", re.IGNORECASE)
 
 
-def clip_job_title(title: str, max_len: int = 80) -> str:
-    """Keep only the job title itself — never a duty/description sentence
-    that PDF extraction glued onto the same header line. Templates render
-    duties as bullets after the title, not as title text."""
+def clip_job_title(title: str, max_len: int = 120) -> str:
+    """Keep the job title itself — never a duty/description sentence.
+
+    Preserve pipe specializations (\"Staff | Tech Lead Full Stack Engineer\")
+    when both sides look like title fragments. Only drop a long trailing
+    clause that clearly starts a duty sentence.
+    """
     title = strip_broken_characters(title)
     title = " ".join(title.replace("\n", " ").split())
     title = _JUNK_PREFIX_RE.sub("", title)
-    title = _ACTION_VERB_RE.split(title, maxsplit=1)[0].strip(" |/-–—,")
+    # Strip a glued duty sentence after the title, but not \"Staff | Tech Lead\".
+    duty_split = _ACTION_VERB_RE.split(title, maxsplit=1)
+    if len(duty_split) > 1 and _TITLE_KEYWORD_RE.search(duty_split[0]):
+        title = duty_split[0].strip(" |/-–—,")
     if _DUTY_START_RE.match(title):
         return ""
     if " | " in title:
         left, right = title.split(" | ", 1)
-        if len(right) > 40 or (right[:1].islower() if right else False):
+        # Drop only when the right side is a long lowercase duty phrase.
+        if right and right[:1].islower() and len(right) > 40 and not _TITLE_KEYWORD_RE.search(right):
             title = left.strip()
     if len(title) > max_len:
         title = title[:max_len].rsplit(" ", 1)[0].strip(" |/-–—,")
     return strip_broken_characters(title)
 
 
-def clip_job_company(company: str, title: str = "", max_len: int = 60) -> str:
-    """Keep a short employer name. Drop glued duty sentences and names
-    already shown in the title (e.g. 'Senior Engineer | Netguru')."""
+def clip_job_company(company: str, title: str = "", max_len: int = 80) -> str:
+    """Keep a short employer name. Drop glued duty sentences and dates.
+
+    Never drop a company merely because it also appears inside a combined
+    title (\"Senior Engineer | Netguru\") — missing company is worse than a
+    duplicated fragment, and templates need the employer field.
+    """
     company = strip_broken_characters(company)
     company = " ".join(company.replace("\n", " ").split())
     company = _JUNK_PREFIX_RE.sub("", company)
@@ -660,15 +722,19 @@ def clip_job_company(company: str, title: str = "", max_len: int = 60) -> str:
     company = _ACTION_VERB_RE.split(company, maxsplit=1)[0].strip(" |/-–—,")
     if _DUTY_START_RE.match(company) or len(company) > max_len:
         return ""
-    if title and company.lower() in title.lower():
+    # Only suppress when company is identical to the whole title (soft-fill bug).
+    if title and company.lower() == title.lower():
         return ""
     return strip_broken_characters(company)
 
 
 def _looks_like_company_name(text: str) -> bool:
     """True for a short employer line sitting under a title/dates header
-    (e.g. "TechNova", "GlobalSoft Systems") — not a duty sentence, bullet,
-    page marker, or wrapped leftover word from the previous bullet."""
+    (e.g. "TechNova", "GlobalSoft Systems", "1648 Factory", "Lead Bank").
+
+    Rejects duty sentences and full job-title lines, but allows employers
+    that merely contain a role word (\"Lead Bank\", \"Engineer.ai\").
+    """
     raw = " ".join((text or "").split())
     if not raw or len(raw) > 60:
         return False
@@ -676,7 +742,9 @@ def _looks_like_company_name(text: str) -> bool:
         return False
     if BULLET_PREFIX_RE.match(raw) or _FULL_DATE_RANGE_RE.search(raw):
         return False
-    if _DUTY_START_RE.match(raw) or _TITLE_KEYWORD_RE.search(raw):
+    if _DUTY_START_RE.match(raw):
+        return False
+    if _looks_like_standalone_job_title(raw):
         return False
     if raw[:1].islower():
         return False
@@ -726,24 +794,38 @@ def _looks_like_combined_job_header(line: str) -> bool:
 
 
 def _looks_like_trailing_employer(line: str) -> bool:
-    """Employer sitting above the next job's date line. Stricter than
-    _looks_like_company_name so wrapped bullet leftovers ("architecture",
-    "Kubernetes") are not stolen from the previous job."""
+    """Employer sitting above the next job's date line.
+
+    Includes single-token employers (Factory, Globant) that PDF extraction
+    parks on their own line under \"Title /1648\".
+    """
     if not _looks_like_company_name(line):
         return False
     raw = " ".join(line.split())
     if " " in raw or raw.isupper():
         return True
-    return bool(re.match(r"^[A-Z][a-zA-Z]*[A-Z][a-zA-Z]+$", raw))
+    if re.match(r"^[A-Z][a-zA-Z]*[A-Z][a-zA-Z0-9]+$", raw):
+        return True
+    if re.match(r"^[A-Z][A-Za-z0-9&.'-]{1,40}$", raw) and not _TITLE_KEYWORD_RE.search(raw):
+        return True
+    return False
 
 
 def _looks_like_trailing_job_header(line: str) -> bool:
-    """A title or company line that PDF extraction parked at the end of
-    the previous job because the next job's date line is the only
-    recognized boundary."""
+    """A title or company line parked at the end of the previous job."""
     if _looks_like_job_boundary(line) or _PAGE_NOISE_RE.match(line.strip()):
         return False
-    return _looks_like_standalone_job_title(line) or _looks_like_trailing_employer(line)
+    if _looks_like_standalone_job_title(line) or _looks_like_trailing_employer(line):
+        return True
+    raw = " ".join((line or "").split())
+    if (
+        raw
+        and _TITLE_KEYWORD_RE.search(raw)
+        and ("|" in raw or "/" in raw)
+        and not BULLET_PREFIX_RE.match(raw)
+    ):
+        return True
+    return False
 
 
 def _looks_like_job_boundary(line: str) -> bool:
@@ -764,33 +846,48 @@ def _looks_like_job_boundary(line: str) -> bool:
     return len(line) < 160 and not line.rstrip().endswith((".", ";"))
 
 
+def _is_standalone_date_line(line: str) -> bool:
+    """True when the line is only a date range (Dejan PDF: title, Factory, then dates)."""
+    raw = " ".join((line or "").split())
+    if not raw:
+        return False
+    return bool(_FULL_DATE_RANGE_RE.fullmatch(raw))
+
+
+def _is_header_continuation(line: str) -> bool:
+    """True for a non-bullet line that still belongs in the job header."""
+    nxt = (line or "").strip()
+    if not nxt or len(nxt) >= 160:
+        return False
+    if BULLET_PREFIX_RE.match(nxt) or _DUTY_START_RE.match(nxt):
+        return False
+    if _is_standalone_date_line(nxt):
+        return True
+    if _looks_like_company_date_header(nxt) or _looks_like_combined_job_header(nxt):
+        return True
+    if _FULL_DATE_RANGE_RE.search(nxt):
+        return False
+    return (
+        _looks_like_company_name(nxt)
+        or _looks_like_standalone_job_title(nxt)
+        or _looks_like_trailing_employer(nxt)
+    )
+
+
 def _split_job_header_and_bullets(job_lines: list[str]) -> tuple[list[str], list[str]]:
     """Split one job's raw lines into header line(s) and bullet lines.
 
-    The first line is always a header line. The line immediately after it
-    is also a header when it looks like an employer, a short title, or a
-    company+dates line — this catches "Title" then "Company Dates",
-    "Title | Dates" then "Company", and "Company | Dates" then "Title".
+    Takes up to three leading header lines so stacked PDF layouts work:
+    \"Title /1648\", \"Factory\", \"JANUARY 2022 – JANUARY 2023\".
     Duty/bullet lines stay bullets.
     """
     if not job_lines:
         return [], []
     header = [job_lines[0]]
     rest = job_lines[1:]
-    if rest:
-        nxt = rest[0].strip()
-        if (
-            len(nxt) < 160
-            and not BULLET_PREFIX_RE.match(nxt)
-            and not _DUTY_START_RE.match(nxt)
-            and (
-                not _FULL_DATE_RANGE_RE.search(nxt)
-                or _looks_like_company_date_header(nxt)
-                or _looks_like_combined_job_header(nxt)
-            )
-        ):
-            header.append(rest[0])
-            rest = rest[1:]
+    while rest and len(header) < 3 and _is_header_continuation(rest[0]):
+        header.append(rest[0])
+        rest = rest[1:]
     return header, rest
 
 
@@ -941,15 +1038,19 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
             )
         )
 
-    # Soften company isolation exactly like _structure_docx: a blank
-    # company used to abort the entire structured (fast) path - prefer a
-    # header-line placeholder instead so we still get lite-schema speed.
+    # Only fill blank company from a later header line that looks like an
+    # employer — never copy the title line into company.
     for i, entry in enumerate(experience):
         if entry.company.strip():
             continue
-        header_bits = job_header_lines[i]
-        fallback = header_bits[1] if len(header_bits) > 1 else (header_bits[0] if header_bits else "")
-        entry.company = clip_job_company(_clean_extracted_text(fallback), entry.title)
+        for bit in job_header_lines[i][1:]:
+            candidate = clip_job_company(_clean_extracted_text(bit), entry.title)
+            if candidate and candidate.lower() != (entry.title or "").lower():
+                entry.company = candidate
+                break
+
+    if not _experience_headers_reliable(experience):
+        return None
 
     return MasterCvData(
         contact=_extract_contact_from_lines(preamble),

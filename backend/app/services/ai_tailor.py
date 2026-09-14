@@ -288,11 +288,14 @@ def _assemble_full_resume(
             bullets = bullets + _generic_jd_bullets(jd_analysis, EXPERIENCE_BULLET_COUNT - len(bullets))
         bullets = bullets[:EXPERIENCE_BULLET_COUNT]
 
-        clipped_title = clip_job_title(title)
+        clipped_title = clip_job_title(title) or " ".join((title or "").split())
+        company = clip_job_company(cv_entry.company, clipped_title) or " ".join(
+            (cv_entry.company or "").split()
+        )
         experience.append(
             ExperienceEntry(
                 title=clipped_title,
-                company=clip_job_company(cv_entry.company, clipped_title),
+                company=company,
                 dates=strip_broken_characters(cv_entry.dates),
                 bullets=bullets,
             )

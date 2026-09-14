@@ -315,33 +315,34 @@ def list_jinja_layout_slugs() -> list[str]:
 
 
 def detect_layout_slug(*hints: str) -> str:
-    """Match upload filename/name to an on-disk Jinja layout (Quang → quang).
+    """Legacy name→layout matcher — NOT used for private uploads.
 
-    Longer slug names win. Returns '' when nothing matches (use generic uploaded layout).
+    Private uploads always render via their own ``template.html.jinja2``
+    (see ``create_uploaded_template`` / ``resolve_render_layout_slug``).
+    Filename substring matching remapped unrelated samples onto the wrong
+    coded layout (e.g. \"Dejan\" → inactive dejan). Kept only as a no-op
+    helper for diagnostics; always returns \"\".
     """
-    haystack = " ".join(h for h in hints if h).lower()
-    if not haystack:
-        return ""
-    for slug in sorted(list_jinja_layout_slugs(), key=len, reverse=True):
-        if slug.lower() in haystack:
-            return slug
+    del hints
     return ""
 
 
 def resolve_render_layout_slug(template: ResumeTemplate) -> str:
-    """Which Jinja layout slug to use for PDF render, or '' for file-based upload layout."""
+    """Named Jinja slug for PDF render, or '' to use the upload's own Jinja file.
+
+    Private uploads never resolve to a gallery/coded layout — that silently
+    swapped one user's sample look for another person's template. Built-in
+    gallery rows still use their own slug.
+    """
+    if getattr(template, "source_path", None) and not getattr(template, "is_builtin", False):
+        return ""
     stored = (getattr(template, "layout_slug", None) or "").strip()
     if stored and stored != "uploaded" and stored in list_jinja_layout_slugs():
         return stored
-    if stored == "uploaded":
-        return ""
-    # Backfill from name for older upload rows.
-    matched = detect_layout_slug(
-        getattr(template, "name", "") or "",
-        getattr(template, "slug", "") or "",
-        Path(template.source_path).name if getattr(template, "source_path", None) else "",
-    )
-    return matched if matched in list_jinja_layout_slugs() else ""
+    slug = (getattr(template, "slug", None) or "").strip()
+    if slug and slug in list_jinja_layout_slugs():
+        return slug
+    return ""
 
 
 def install_uploaded_jinja_layout(dest_dir: Path, layout_slug: str = "") -> Path:
@@ -389,7 +390,11 @@ def ensure_uploaded_jinja_layout(template: ResumeTemplate) -> Path | None:
 
 
 def repair_uploaded_jinja_layouts() -> int:
-    """Backfill layout_slug from upload names (Quang Dang → quang) and ensure Jinja files."""
+    """Ensure every private upload uses layout_slug=uploaded + a Jinja file.
+
+    Never remaps uploads onto gallery layouts from filenames — that caused
+    wrong-template renders for any user whose sample name matched a person.
+    """
     repaired = 0
     with session_scope() as session:
         rows = (
@@ -403,23 +408,16 @@ def repair_uploaded_jinja_layouts() -> int:
             dest_dir = Path(row.source_path).parent
             if not dest_dir.exists():
                 continue
-            matched = detect_layout_slug(row.name, row.slug, Path(row.source_path).name)
-            desired = matched if matched else "uploaded"
-            if (row.layout_slug or "").strip() != desired:
-                row.layout_slug = desired
+            if (row.layout_slug or "").strip() != "uploaded":
+                row.layout_slug = "uploaded"
                 repaired += 1
             target = dest_dir / _UPLOADED_JINJA_NAME
-            if not target.exists() and desired == "uploaded":
+            if not target.exists():
                 try:
-                    install_uploaded_jinja_layout(dest_dir, desired)
+                    install_uploaded_jinja_layout(dest_dir, "uploaded")
                     repaired += 1
                 except Exception:  # noqa: BLE001
                     logger.warning("Failed installing Jinja for %s", row.slug, exc_info=True)
-            elif not target.exists():
-                try:
-                    install_uploaded_jinja_layout(dest_dir, "uploaded")
-                except Exception:  # noqa: BLE001
-                    pass
     return repaired
 
 
@@ -434,11 +432,11 @@ async def create_uploaded_template(
 
     Files land under backend/data/user_templates/<user_id>/<slug>/:
       source.pdf|docx           — original upload (gallery thumbnail source)
-      template.html.jinja2      — generic layout when no named match
+      template.html.jinja2      — shared uploaded layout (Jinja + Playwright)
       preview.pdf               — thumbnail source
 
-    If the filename matches a known layout (e.g. \"Quang Dang\" → quang),
-    tailored PDFs use that layout via Jinja + Playwright (same engine as Mateo).
+    Private uploads always use the shared uploaded layout — never remap by
+    filename onto Mateo/Marek/Quang/Dejan/etc. coded templates.
     """
     static_dir_path = static_dir_path or static_dir()
     suffix = Path(original_filename).suffix.lower()
@@ -455,8 +453,7 @@ async def create_uploaded_template(
 
     preview_pdf = dest_dir / "preview.pdf"
     name = _display_name_from_filename(original_filename)
-    matched_layout = detect_layout_slug(original_filename, name)
-    layout_slug = matched_layout if matched_layout else "uploaded"
+    layout_slug = "uploaded"
     install_uploaded_jinja_layout(dest_dir, layout_slug)
 
     from app.services.docx_to_pdf import convert_docx_to_pdf
@@ -483,11 +480,7 @@ async def create_uploaded_template(
     if not served.exists():
         thumbnail_path = _write_placeholder_thumbnail(slug, static_dir_path)
 
-    layout_note = (
-        f" Uses the “{layout_slug}” layout (Jinja/Playwright)."
-        if layout_slug != "uploaded"
-        else " Uses the shared uploaded layout (Jinja/Playwright)."
-    )
+    layout_note = " Uses the shared uploaded layout (Jinja/Playwright)."
 
     with session_scope() as session:
         has_any = (
@@ -517,8 +510,8 @@ async def create_uploaded_template(
 def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> int:
     """Rebuild missing thumbnails for uploaded templates (wrong path / failed convert).
 
-    Also clears layout_slug values that pointed uploads at inactive Jinja layouts
-    (e.g. Dejan upload → dejan), which caused the wrong template to render.
+    Also forces private uploads onto layout_slug=uploaded (never a coded
+    gallery layout inferred from the person's name in the filename).
     """
     static_dir_path = static_dir_path or static_dir()
     repaired = 0
@@ -530,17 +523,9 @@ def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> 
         )
         for row in rows:
             stored = (getattr(row, "layout_slug", None) or "").strip()
-            matched = detect_layout_slug(row.name, row.slug, Path(row.source_path).name if row.source_path else "")
-            if matched:
-                if stored != matched:
-                    row.layout_slug = matched
-                    repaired += 1
-            elif row.source_path and stored not in ("uploaded", ""):
-                if stored not in list_jinja_layout_slugs():
-                    row.layout_slug = "uploaded"
-                    repaired += 1
-            elif row.source_path and not stored:
+            if row.source_path and stored != "uploaded":
                 row.layout_slug = "uploaded"
+                repaired += 1
             thumb = static_dir_path / row.thumbnail_path
             if thumb.exists() and thumb.stat().st_size > 0:
                 continue

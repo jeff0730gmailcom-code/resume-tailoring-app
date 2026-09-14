@@ -44,3 +44,6 @@ bcrypt==4.3.0
 PyJWT==2.10.1
 google-auth==2.41.1
 requests==2.32.5
+
+# Test runner for backend/tests (layout safety + job-header regressions).
+pytest>=8.0

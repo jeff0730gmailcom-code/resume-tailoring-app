@@ -409,7 +409,8 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
 
     pdf_path = file_utils.get_tailored_pdf_path(file_id)
     with perf.stage("PDF Generation"):
-        # Prefer a named on-disk layout when the upload matches it (Quang → quang).
+        # Private uploads always render via their own Jinja file (never remap
+        # by filename onto Mateo/Quang/Dejan/etc.). Built-ins use named layouts.
         named_layout = resolve_render_layout_slug(template)
         if named_layout:
             pdf_bytes = await render_pdf(named_layout, tailored)

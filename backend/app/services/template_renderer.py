@@ -210,12 +210,12 @@ def _sanitize_resume_text(resume: TailoredResumeContent) -> TailoredResumeConten
         # Never leave a blank job header when the model/extractor provided text —
         # aggressive clipping used to wipe titles that started with action verbs.
         if not title and raw_title.strip():
-            title = " ".join(raw_title.replace("\n", " ").split())[:80].strip(" |/-–—,")
+            title = " ".join(raw_title.replace("\n", " ").split())[:120].strip(" |/-–—,")
         job["title"] = title
         raw_company = job.get("company") or ""
         company = clip_job_company(raw_company, title)
-        if not company and raw_company.strip() and raw_company.strip().lower() not in title.lower():
-            company = " ".join(raw_company.replace("\n", " ").split())[:60].strip(" |/-–—,")
+        if not company and raw_company.strip():
+            company = " ".join(raw_company.replace("\n", " ").split())[:80].strip(" |/-–—,")
         job["company"] = company
         job["dates"] = strip_broken_characters(job.get("dates") or "")
         cleaned_bullets = []

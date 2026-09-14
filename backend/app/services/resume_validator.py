@@ -106,12 +106,24 @@ def validate_and_fix_resume(
 
     if master_cv.is_structured and len(master_cv.experience) == len(tailored.experience):
         for i, (original, generated) in enumerate(zip(master_cv.experience, tailored.experience)):
+            if original.title and generated.title.strip() != original.title.strip():
+                issues.append(
+                    f"job #{i + 1}: job title drifted ({generated.title!r}) - restored to {original.title!r}"
+                )
+                generated.title = original.title
             if original.company and generated.company.strip() != original.company.strip():
                 issues.append(f"job #{i + 1}: company name drifted ({generated.company!r}) - restored to {original.company!r}")
                 generated.company = original.company
             if original.dates and generated.dates.strip() != original.dates.strip():
                 issues.append(f"job #{i + 1}: employment dates drifted ({generated.dates!r}) - restored to {original.dates!r}")
                 generated.dates = original.dates
+            # Structured master with a blank generated title/company is always wrong.
+            if original.title and not generated.title.strip():
+                issues.append(f"job #{i + 1}: missing job title - restored from master CV")
+                generated.title = original.title
+            if original.company and not generated.company.strip():
+                issues.append(f"job #{i + 1}: missing company - restored from master CV")
+                generated.company = original.company
 
     # Languages: a FIXED, backend-only section (see app/core/constants.py) -
     # never read from the master CV, never AI-generated, in EITHER the
