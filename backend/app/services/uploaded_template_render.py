@@ -4,9 +4,10 @@ Order:
 1. Fill the uploaded sample DOCX with tailored content (preserves their layout)
 2. Word DOCX→PDF when available
 3. mammoth HTML → Playwright PDF (no Word)
-4. Jinja fallback using the upload's layout_slug / filename match
-   (Dejan → dejan, Nemanja → nemanja). Never silently default to Nemanja
-   for unrelated uploads.
+
+Uploads are never remapped to a different coded Jinja layout (e.g. a file
+named Dejan Pavlovic.pdf must not silently render templates/resumes/dejan/).
+If the sample cannot be filled, return None so the API can ask for a DOCX.
 """
 from __future__ import annotations
 
@@ -17,31 +18,10 @@ from pathlib import Path
 from app.models.schemas import TailoredResumeContent
 from app.services.docx_template_fill import fill_docx_template
 from app.services.docx_to_pdf import convert_docx_to_pdf, convert_to_docx
-from app.services.template_registry import detect_layout_slug, list_jinja_layout_slugs, resolve_working_docx
-from app.services.template_renderer import ensure_browser, render_html_to_pdf, render_pdf
+from app.services.template_registry import resolve_working_docx
+from app.services.template_renderer import ensure_browser, render_html_to_pdf
 
 logger = logging.getLogger(__name__)
-
-
-def _fallback_jinja_slug(template) -> str:
-    """Resolve which on-disk Jinja layout to use when DOCX fill is unavailable."""
-    stored = (getattr(template, "layout_slug", None) or "").strip()
-    if stored and stored in list_jinja_layout_slugs():
-        return stored
-
-    matched = detect_layout_slug(
-        getattr(template, "name", "") or "",
-        getattr(template, "slug", "") or "",
-        getattr(template, "description", "") or "",
-    )
-    if matched:
-        return matched
-
-    # Last resort: Mateo (active default gallery layout), never Nemanja-by-default.
-    available = list_jinja_layout_slugs()
-    if "mateo" in available:
-        return "mateo"
-    return available[0] if available else "mateo"
 
 
 def _docx_to_print_html(docx_path: Path) -> str:
@@ -109,50 +89,49 @@ async def render_uploaded_template_pdf(
     tailored: TailoredResumeContent,
     work_dir: Path,
 ) -> bytes | None:
-    """Fill the uploaded sample CV and produce PDF bytes."""
+    """Fill the uploaded sample CV and produce PDF bytes.
+
+    Returns None when the upload cannot be filled (no working DOCX). Callers
+    must not substitute a different person's Jinja template.
+    """
     work_dir.mkdir(parents=True, exist_ok=True)
     filled_docx = work_dir / "filled_template.docx"
     filled_pdf = work_dir / "filled_template.pdf"
-    fallback_slug = _fallback_jinja_slug(template)
 
     working = await _ensure_working_docx(template)
-    if working is not None:
-        try:
-            fill_docx_template(working, filled_docx, tailored)
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to fill uploaded template %s", getattr(template, "slug", "?"))
-            filled_docx = None  # type: ignore[assignment]
-    else:
+    if working is None:
         logger.warning(
-            "Uploaded template %s has no working DOCX — using Jinja layout '%s'",
+            "Uploaded template %s (%s) has no working DOCX — cannot fill the sample layout",
             getattr(template, "slug", "?"),
-            fallback_slug,
+            getattr(template, "name", ""),
         )
-        filled_docx = None  # type: ignore[assignment]
+        return None
 
-    if filled_docx is not None and filled_docx.exists():
-        ok = await convert_docx_to_pdf(filled_docx, filled_pdf)
-        if ok and filled_pdf.exists() and filled_pdf.stat().st_size > 0:
-            return filled_pdf.read_bytes()
+    try:
+        fill_docx_template(working, filled_docx, tailored)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to fill uploaded template %s", getattr(template, "slug", "?"))
+        return None
 
-        try:
-            await ensure_browser()
-            html = _docx_to_print_html(filled_docx)
-            pdf_bytes = await render_html_to_pdf(html)
-            if pdf_bytes:
-                filled_pdf.write_bytes(pdf_bytes)
-                return pdf_bytes
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "mammoth/Playwright PDF path failed for uploaded template %s",
-                getattr(template, "slug", "?"),
-                exc_info=True,
-            )
+    if not filled_docx.exists():
+        return None
 
-    await ensure_browser()
-    logger.warning(
-        "Falling back to Jinja layout '%s' for uploaded template %s",
-        fallback_slug,
-        getattr(template, "slug", "?"),
-    )
-    return await render_pdf(fallback_slug, tailored)
+    ok = await convert_docx_to_pdf(filled_docx, filled_pdf)
+    if ok and filled_pdf.exists() and filled_pdf.stat().st_size > 0:
+        return filled_pdf.read_bytes()
+
+    try:
+        await ensure_browser()
+        html = _docx_to_print_html(filled_docx)
+        pdf_bytes = await render_html_to_pdf(html)
+        if pdf_bytes:
+            filled_pdf.write_bytes(pdf_bytes)
+            return pdf_bytes
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "mammoth/Playwright PDF path failed for uploaded template %s",
+            getattr(template, "slug", "?"),
+            exc_info=True,
+        )
+
+    return None

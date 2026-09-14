@@ -313,20 +313,19 @@ def list_jinja_layout_slugs() -> list[str]:
 
 
 def detect_layout_slug(*hints: str) -> str:
-    """Match upload filename/name to an on-disk Jinja layout (e.g. Dejan → dejan).
+    """Match hints only to active built-in gallery layouts (mateo/marek/nemanja/quang).
 
-    Longer slug names win so 'nemanja' is preferred over accidental short matches.
+    Never matches inactive on-disk layouts such as dejan/aleksandra — those must
+    not hijack a user upload that happens to be named \"Dejan Pavlovic.pdf\".
     Returns '' when nothing matches.
     """
     haystack = " ".join(h for h in hints if h).lower()
     if not haystack:
         return ""
-    best = ""
-    for slug in sorted(list_jinja_layout_slugs(), key=len, reverse=True):
+    for slug in sorted(_BUILTIN_SLUGS, key=len, reverse=True):
         if slug.lower() in haystack:
-            best = slug
-            break
-    return best
+            return slug
+    return ""
 
 
 async def create_uploaded_template(
@@ -343,7 +342,10 @@ async def create_uploaded_template(
       working.docx     — editable copy used for in-place fill (when available)
       preview.pdf      — first-page source for the gallery thumbnail
     Thumbnail PNG: backend/static/template_previews/<slug>.png
-    DB row: resume_templates (user_id, source_path, layout_slug, …)
+    DB row: resume_templates (user_id, source_path, layout_slug='', …)
+
+    Uploads always keep their own sample layout. They are never linked to an
+    inactive coded Jinja layout (e.g. dejan) just because the filename matches.
     """
     static_dir_path = static_dir_path or static_dir()
     suffix = Path(original_filename).suffix.lower()
@@ -361,7 +363,8 @@ async def create_uploaded_template(
     working_docx = dest_dir / "working.docx"
     preview_pdf = dest_dir / "preview.pdf"
     name = _display_name_from_filename(original_filename)
-    layout_slug = detect_layout_slug(original_filename, name)
+    # Uploaded samples are filled in place — do not bind them to another Jinja layout.
+    layout_slug = ""
 
     from app.services.docx_to_pdf import convert_docx_to_pdf, convert_to_docx
 
@@ -377,6 +380,10 @@ async def create_uploaded_template(
         ok = await convert_to_docx(source_path, working_docx)
         if not ok:
             working_docx.unlink(missing_ok=True)
+            logger.warning(
+                "PDF→DOCX failed for uploaded template %s — tailored output needs Word or a DOCX re-upload",
+                slug,
+            )
 
     if preview_ok and preview_pdf.exists():
         thumbnail_path = _ensure_thumbnail(slug, preview_pdf, static_dir_path, force=True)
@@ -401,10 +408,7 @@ async def create_uploaded_template(
         row = ResumeTemplate(
             slug=slug,
             name=name,
-            description=(
-                "Uploaded sample CV used as your private resume template."
-                + (f" Layout: {layout_slug}." if layout_slug else "")
-            ),
+            description="Uploaded sample CV used as your private resume template.",
             thumbnail_path=thumbnail_path,
             is_active=True,
             user_id=user_id,
@@ -422,7 +426,9 @@ async def create_uploaded_template(
 
 def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> int:
     """Rebuild missing thumbnails for uploaded templates (wrong path / failed convert).
-    Also backfills layout_slug from the template name when empty (Dejan → dejan).
+
+    Also clears layout_slug values that pointed uploads at inactive Jinja layouts
+    (e.g. Dejan upload → dejan), which caused the wrong template to render.
     """
     static_dir_path = static_dir_path or static_dir()
     repaired = 0
@@ -433,11 +439,15 @@ def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> 
             .all()
         )
         for row in rows:
-            if not (getattr(row, "layout_slug", None) or "").strip():
-                matched = detect_layout_slug(row.name, row.slug, row.description or "")
-                if matched:
-                    row.layout_slug = matched
-                    repaired += 1
+            stored = (getattr(row, "layout_slug", None) or "").strip()
+            if stored and stored not in _BUILTIN_SLUGS:
+                # e.g. layout_slug='dejan' on an upload named Dejan Pavlovic
+                row.layout_slug = ""
+                repaired += 1
+            elif stored and stored in _BUILTIN_SLUGS and row.source_path:
+                # Uploads must not inherit a gallery Jinja layout by name either.
+                row.layout_slug = ""
+                repaired += 1
             thumb = static_dir_path / row.thumbnail_path
             if thumb.exists() and thumb.stat().st_size > 0:
                 continue

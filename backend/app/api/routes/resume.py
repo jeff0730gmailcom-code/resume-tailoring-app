@@ -417,6 +417,15 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
                 work_dir=file_utils.get_file_dir(file_id),
             )
     if pdf_bytes is None:
+        if getattr(template, "source_path", None) and not template_has_jinja_layout(template):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    f"Could not fill your uploaded template “{template.name}”. "
+                    "Re-upload it as a DOCX (or use PDF with Microsoft Word installed) "
+                    "so the app can keep that sample’s layout instead of substituting another template."
+                ),
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
