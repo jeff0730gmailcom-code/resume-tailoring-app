@@ -126,9 +126,10 @@
     <table class="job-header">
       <tr>
         <td class="job-title">
-          {% if job.title %}{{ job.title }}{% endif %}
-          {% if job.title and job.company %} / {% endif %}
-          {% if job.company %}{{ job.company }}{% endif %}
+          {% if job.title and job.company %}{{ job.title }} / {{ job.company }}
+          {% elif job.title %}{{ job.title }}
+          {% elif job.company %}{{ job.company }}
+          {% else %}Role{% endif %}
         </td>
         <td class="job-dates">{{ job.dates }}</td>
       </tr>

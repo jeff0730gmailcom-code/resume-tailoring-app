@@ -205,9 +205,18 @@ def _sanitize_resume_text(resume: TailoredResumeContent) -> TailoredResumeConten
             if edu.get(key):
                 edu[key] = _clean_field(edu[key])
     for job in data.get("experience") or []:
-        title = clip_job_title(job.get("title") or "")
+        raw_title = job.get("title") or ""
+        title = clip_job_title(raw_title)
+        # Never leave a blank job header when the model/extractor provided text —
+        # aggressive clipping used to wipe titles that started with action verbs.
+        if not title and raw_title.strip():
+            title = " ".join(raw_title.replace("\n", " ").split())[:80].strip(" |/-–—,")
         job["title"] = title
-        job["company"] = clip_job_company(job.get("company") or "", title)
+        raw_company = job.get("company") or ""
+        company = clip_job_company(raw_company, title)
+        if not company and raw_company.strip() and raw_company.strip().lower() not in title.lower():
+            company = " ".join(raw_company.replace("\n", " ").split())[:60].strip(" |/-–—,")
+        job["company"] = company
         job["dates"] = strip_broken_characters(job.get("dates") or "")
         cleaned_bullets = []
         for bullet in job.get("bullets") or []:

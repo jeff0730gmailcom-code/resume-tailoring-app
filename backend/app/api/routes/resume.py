@@ -65,7 +65,7 @@ from app.services.template_registry import (
     set_default_template,
     template_has_jinja_layout,
     ensure_uploaded_jinja_layout,
-    uploaded_jinja_path,
+    resolve_render_layout_slug,
 )
 from app.services.template_renderer import render_pdf, render_pdf_from_file
 from app.services.uploaded_template_render import render_uploaded_template_pdf
@@ -409,19 +409,27 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
 
     pdf_path = file_utils.get_tailored_pdf_path(file_id)
     with perf.stage("PDF Generation"):
-        jinja_file = ensure_uploaded_jinja_layout(template) if getattr(template, "source_path", None) else None
-        if jinja_file is not None:
-            # Uploaded samples: same Jinja + Playwright engine as Mateo/Marek.
-            pdf_bytes = await render_pdf_from_file(jinja_file, tailored)
-        elif template_has_jinja_layout(template):
-            pdf_bytes = await render_pdf(template.slug, tailored)
+        # Prefer a named on-disk layout when the upload matches it (Quang → quang).
+        named_layout = resolve_render_layout_slug(template)
+        if named_layout:
+            pdf_bytes = await render_pdf(named_layout, tailored)
         else:
-            pdf_bytes = await render_uploaded_template_pdf(
-                file_id=file_id,
-                template=template,
-                tailored=tailored,
-                work_dir=file_utils.get_file_dir(file_id),
+            jinja_file = (
+                ensure_uploaded_jinja_layout(template)
+                if getattr(template, "source_path", None)
+                else None
             )
+            if jinja_file is not None:
+                pdf_bytes = await render_pdf_from_file(jinja_file, tailored)
+            elif template_has_jinja_layout(template):
+                pdf_bytes = await render_pdf(template.slug, tailored)
+            else:
+                pdf_bytes = await render_uploaded_template_pdf(
+                    file_id=file_id,
+                    template=template,
+                    tailored=tailored,
+                    work_dir=file_utils.get_file_dir(file_id),
+                )
     if pdf_bytes is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
