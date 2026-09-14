@@ -315,20 +315,45 @@ def list_jinja_layout_slugs() -> list[str]:
 
 
 def detect_layout_slug(*hints: str) -> str:
-    """Unused for private-upload rendering (kept for diagnostics).
+    """Pick a starter Jinja for a new upload from its filename/display name.
 
-    Private uploads always get their own ``template.html.jinja2`` and never
-    remap onto gallery/coded layouts by filename.
+    Only active gallery builtins (mateo/marek/nemanja/quang) — never inactive
+    coded ``dejan`` (that stole black/white Dejan samples). The matched layout
+    is COPIED into the upload folder as that template's own Jinja file;
+    rendering always uses the per-upload file, not the gallery path.
     """
-    del hints
+    raw = " ".join(h for h in hints if h)
+    if not raw:
+        return ""
+    haystack = _NAME_FROM_FILENAME_RE.sub(" ", raw).lower()
+    for slug in sorted(_BUILTIN_SLUGS, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(slug.lower())}\b", haystack):
+            return slug
     return ""
+
+
+def infer_upload_layout_slug(*hints: str, sample_text: str = "") -> str:
+    """Choose which Jinja starter to copy into a new upload folder.
+
+    Prefer name match to gallery builtins; otherwise sniff sample text
+    (Quang-style \"Professional Summary\" / \"Work Experience\"). Default
+    is the generic uploaded (black/white) starter — never green dejan.
+    """
+    matched = detect_layout_slug(*hints)
+    if matched:
+        return matched
+    lower = (sample_text or "").lower()
+    if "professional summary" in lower and "work experience" in lower:
+        return "quang"
+    return "uploaded"
 
 
 def resolve_render_layout_slug(template: ResumeTemplate) -> str:
     """Named Jinja slug for PDF render, or '' to use the upload's own Jinja file.
 
     Private uploads ALWAYS return '' so preview/download use that upload's
-    own ``template.html.jinja2``. Built-in gallery rows use their coded slug.
+    own ``template.html.jinja2`` (a per-upload copy). Built-in gallery rows
+    use their coded slug.
     """
     if getattr(template, "source_path", None) and not getattr(template, "is_builtin", False):
         return ""
@@ -351,22 +376,26 @@ def _layout_jinja_source(layout_slug: str) -> Path:
     return _UPLOADED_JINJA_SOURCE
 
 
-def install_uploaded_jinja_layout(dest_dir: Path, layout_slug: str = "") -> Path:
+def install_uploaded_jinja_layout(
+    dest_dir: Path,
+    layout_slug: str = "",
+    *,
+    force: bool = False,
+) -> Path:
     """Install this upload's own ``template.html.jinja2`` into its folder.
 
-    Every private upload owns a distinct file under
-    ``user_templates/<user_id>/<slug>/template.html.jinja2``. The starter
-    content comes from the shared uploaded layout (or a named layout copy
-    only when explicitly requested). Selecting that template always renders
-    this file — never another upload's or a gallery path by name.
+    Every private upload gets a distinct file under
+    ``user_templates/<user_id>/<slug>/template.html.jinja2``. Starter content
+    is copied from the matched layout (quang/mateo/… or ``_uploaded``).
+    Pass ``force=True`` on create/repair so Quang and Dejan uploads do not
+    keep sharing one identical starter file.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / _UPLOADED_JINJA_NAME
     source = _layout_jinja_source(layout_slug or "uploaded")
     if not source.exists():
         raise FileNotFoundError(f"Missing Jinja layout source: {source}")
-    # Do not overwrite an existing per-upload Jinja — it is that template's own layout.
-    if not dest.exists():
+    if force or not dest.exists():
         shutil.copy2(source, dest)
     return dest
 
@@ -380,14 +409,23 @@ def uploaded_jinja_path(template: ResumeTemplate) -> Path | None:
 
 
 def ensure_uploaded_jinja_layout(template: ResumeTemplate) -> Path | None:
-    """Ensure this upload has its own Jinja file; create from uploaded starter if missing."""
+    """Ensure this upload has its own Jinja file (create from its layout_slug if missing)."""
     if not getattr(template, "source_path", None):
         return None
     dest_dir = Path(template.source_path).parent
     if not dest_dir.exists():
         return None
     try:
-        return install_uploaded_jinja_layout(dest_dir, "uploaded")
+        layout = (getattr(template, "layout_slug", None) or "").strip() or "uploaded"
+        if layout not in _BUILTIN_SLUGS and layout != "uploaded":
+            layout = (
+                infer_upload_layout_slug(
+                    getattr(template, "name", ""),
+                    getattr(template, "slug", ""),
+                    Path(template.source_path).name,
+                )
+            )
+        return install_uploaded_jinja_layout(dest_dir, layout, force=False)
     except Exception:  # noqa: BLE001
         logger.warning(
             "Could not install Jinja layout for upload %s",
@@ -397,11 +435,25 @@ def ensure_uploaded_jinja_layout(template: ResumeTemplate) -> Path | None:
         return None
 
 
-def repair_uploaded_jinja_layouts() -> int:
-    """Ensure every private upload has layout_slug=uploaded and its own Jinja file.
+def _sample_text_hint(source_path: Path) -> str:
+    """Best-effort text from an uploaded PDF/DOCX for layout sniffing."""
+    try:
+        if source_path.suffix.lower() not in {".pdf", ".docx"}:
+            return ""
+        from app.services.cv_parser import extract_text_from_cv
 
-    Does not remap uploads onto gallery layouts. Does not overwrite an
-    existing per-upload Jinja (that file is the selected template's layout).
+        return (extract_text_from_cv(source_path) or "")[:4000]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def repair_uploaded_jinja_layouts() -> int:
+    """Give each upload its own Jinja content from name/sample (force refresh).
+
+    \"Quang Dang Resume\" → copy quang Jinja into that folder;
+    \"Dejan…\" / unknown → copy uploaded (black/white) Jinja into that folder.
+    Always writes the per-upload file so selecting Quang vs Dejan cannot share
+    one identical layout.
     """
     repaired = 0
     with session_scope() as session:
@@ -413,19 +465,24 @@ def repair_uploaded_jinja_layouts() -> int:
         for row in rows:
             if not row.source_path:
                 continue
-            dest_dir = Path(row.source_path).parent
+            source = Path(row.source_path)
+            dest_dir = source.parent
             if not dest_dir.exists():
                 continue
-            if (row.layout_slug or "").strip() != "uploaded":
-                row.layout_slug = "uploaded"
-                repaired += 1
-            target = dest_dir / _UPLOADED_JINJA_NAME
-            if not target.exists():
-                try:
-                    install_uploaded_jinja_layout(dest_dir, "uploaded")
-                    repaired += 1
-                except Exception:  # noqa: BLE001
-                    logger.warning("Failed installing Jinja for %s", row.slug, exc_info=True)
+            desired = infer_upload_layout_slug(
+                row.name,
+                row.slug,
+                source.name,
+                sample_text=_sample_text_hint(source),
+            )
+            try:
+                install_uploaded_jinja_layout(dest_dir, desired, force=True)
+            except Exception:  # noqa: BLE001
+                logger.warning("Failed installing Jinja for %s", row.slug, exc_info=True)
+                continue
+            if (row.layout_slug or "").strip() != desired:
+                row.layout_slug = desired
+            repaired += 1
     return repaired
 
 
@@ -440,10 +497,12 @@ async def create_uploaded_template(
 
     Files land under backend/data/user_templates/<user_id>/<slug>/:
       source.pdf|docx           — original upload (gallery thumbnail source)
-      template.html.jinja2      — THIS upload's own Jinja layout
+      template.html.jinja2      — THIS upload's own Jinja (distinct per upload)
       preview.pdf               — thumbnail source
 
-    Selecting this template always renders its own ``template.html.jinja2``.
+    Starter Jinja is chosen from the sample name/text (Quang → quang copy,
+    otherwise uploaded black/white). Selecting this template always renders
+    its own ``template.html.jinja2``.
     """
     static_dir_path = static_dir_path or static_dir()
     suffix = Path(original_filename).suffix.lower()
@@ -460,8 +519,11 @@ async def create_uploaded_template(
 
     preview_pdf = dest_dir / "preview.pdf"
     name = _display_name_from_filename(original_filename)
-    layout_slug = "uploaded"
-    install_uploaded_jinja_layout(dest_dir, layout_slug)
+    # Sniff after writing source so Quang vs Dejan get different Jinja content
+    # in their own folders (still rendered from that folder, never remapped).
+    sample_text = _sample_text_hint(source_path)
+    layout_slug = infer_upload_layout_slug(original_filename, name, sample_text=sample_text)
+    install_uploaded_jinja_layout(dest_dir, layout_slug, force=True)
 
     from app.services.docx_to_pdf import convert_docx_to_pdf
 
@@ -487,7 +549,11 @@ async def create_uploaded_template(
     if not served.exists():
         thumbnail_path = _write_placeholder_thumbnail(slug, static_dir_path)
 
-    layout_note = " Uses this upload's own Jinja layout (Jinja/Playwright)."
+    layout_note = (
+        f" Own Jinja layout (starter: {layout_slug})."
+        if layout_slug != "uploaded"
+        else " Own Jinja layout (uploaded starter)."
+    )
 
     with session_scope() as session:
         has_any = (
@@ -517,8 +583,8 @@ async def create_uploaded_template(
 def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> int:
     """Rebuild missing thumbnails for uploaded templates (wrong path / failed convert).
 
-    Also forces private uploads onto layout_slug=uploaded so they always render
-    from their own Jinja file (never a coded gallery layout by name).
+    Also syncs layout_slug to the inferred starter (quang/mateo/… or uploaded)
+    without changing how render resolves (uploads still use their own file).
     """
     static_dir_path = static_dir_path or static_dir()
     repaired = 0
@@ -530,8 +596,19 @@ def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> 
         )
         for row in rows:
             stored = (getattr(row, "layout_slug", None) or "").strip()
-            if row.source_path and stored != "uploaded":
-                row.layout_slug = "uploaded"
+            source = Path(row.source_path) if row.source_path else None
+            desired = (
+                infer_upload_layout_slug(
+                    row.name,
+                    row.slug,
+                    source.name if source else "",
+                    sample_text=_sample_text_hint(source) if source and source.exists() else "",
+                )
+                if row.source_path
+                else stored
+            )
+            if row.source_path and stored != desired:
+                row.layout_slug = desired
                 repaired += 1
             thumb = static_dir_path / row.thumbnail_path
             if thumb.exists() and thumb.stat().st_size > 0:
@@ -618,6 +695,15 @@ def set_default_template(*, user_id: int, slug: str) -> ResumeTemplate:
 
 
 def delete_user_template(*, user_id: int, slug: str) -> None:
+    """Permanently remove an uploaded template and all related files.
+
+    Deletes:
+      - DB row
+      - upload folder (source.pdf|docx, preview.pdf, template.html.jinja2, working.docx)
+      - gallery thumbnail under static/template_previews/<slug>.png
+    Built-ins cannot be deleted.
+    """
+    static_dir_path = static_dir()
     with session_scope() as session:
         row = (
             session.query(ResumeTemplate)
@@ -630,8 +716,9 @@ def delete_user_template(*, user_id: int, slug: str) -> None:
             raise ValueError("Built-in templates cannot be deleted.")
         was_default = bool(row.is_default)
         source = Path(row.source_path) if row.source_path else None
-        row.is_active = False
-        row.is_default = False
+        thumb_rel = (row.thumbnail_path or "").strip()
+        session.delete(row)
+        session.flush()
         if was_default:
             replacement = (
                 session.query(ResumeTemplate)
@@ -641,18 +728,46 @@ def delete_user_template(*, user_id: int, slug: str) -> None:
             )
             if replacement is not None:
                 replacement.is_default = True
-    if source is not None and source.exists():
-        shutil.rmtree(source.parent, ignore_errors=True)
+
+    if source is not None:
+        folder = source.parent
+        if folder.exists():
+            shutil.rmtree(folder, ignore_errors=True)
+    if thumb_rel:
+        thumb = static_dir_path / thumb_rel
+        try:
+            thumb.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            logger.warning("Could not delete thumbnail %s", thumb, exc_info=True)
+    # Also remove by slug convention in case thumbnail_path was empty/stale.
+    try:
+        (static_dir_path / _THUMBNAIL_DIRNAME / f"{slug}.png").unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def delete_templates_for_user(user_id: int) -> None:
+    """Hard-delete every template owned by this user (files + DB rows)."""
+    static_dir_path = static_dir()
     with session_scope() as session:
         rows = session.query(ResumeTemplate).filter_by(user_id=user_id).all()
         for row in rows:
             if row.source_path:
                 path = Path(row.source_path)
-                if path.exists():
-                    shutil.rmtree(path.parent, ignore_errors=True)
+                folder = path.parent
+                if folder.exists():
+                    shutil.rmtree(folder, ignore_errors=True)
+            thumb_rel = (row.thumbnail_path or "").strip()
+            if thumb_rel:
+                try:
+                    (static_dir_path / thumb_rel).unlink(missing_ok=True)
+                except Exception:  # noqa: BLE001
+                    pass
+            if row.slug:
+                try:
+                    (static_dir_path / _THUMBNAIL_DIRNAME / f"{row.slug}.png").unlink(missing_ok=True)
+                except Exception:  # noqa: BLE001
+                    pass
             session.delete(row)
 
 
