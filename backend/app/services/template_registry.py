@@ -379,6 +379,13 @@ async def create_uploaded_template(
         preview_ok = preview_pdf.exists() and preview_pdf.stat().st_size > 0
         ok = await convert_to_docx(source_path, working_docx)
         if not ok:
+            # One retry — Word is often briefly busy during first open of a PDF.
+            from app.services.docx_to_pdf import _recover_from_hang
+
+            _recover_from_hang()
+            working_docx.unlink(missing_ok=True)
+            ok = await convert_to_docx(source_path, working_docx)
+        if not ok:
             working_docx.unlink(missing_ok=True)
             logger.warning(
                 "PDF→DOCX failed for uploaded template %s — tailored output needs Word or a DOCX re-upload",

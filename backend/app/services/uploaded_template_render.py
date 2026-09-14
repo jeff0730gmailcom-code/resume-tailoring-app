@@ -64,7 +64,7 @@ def _docx_to_print_html(docx_path: Path) -> str:
 
 async def _ensure_working_docx(template) -> Path | None:
     working = resolve_working_docx(template)
-    if working is not None and working.exists():
+    if working is not None and working.exists() and working.stat().st_size > 0:
         return working
 
     source = Path(template.source_path) if getattr(template, "source_path", None) else None
@@ -74,10 +74,20 @@ async def _ensure_working_docx(template) -> Path | None:
     working = source.parent / "working.docx"
     if source.suffix.lower() == ".docx":
         shutil.copy2(source, working)
-        return working if working.exists() else None
+        return working if working.exists() and working.stat().st_size > 0 else None
+
+    # PDF/DOC samples need Word. Retry once after a COM hang recovery — upload-time
+    # conversion often fails when Word is busy, then succeeds on generate.
+    from app.services.docx_to_pdf import _recover_from_hang
 
     ok = await convert_to_docx(source, working)
-    if ok and working.exists():
+    if (not ok or not working.exists()) and source.suffix.lower() == ".pdf":
+        logger.warning("Retrying PDF→DOCX for uploaded template %s after Word recover", getattr(template, "slug", "?"))
+        _recover_from_hang()
+        working.unlink(missing_ok=True)
+        ok = await convert_to_docx(source, working)
+
+    if ok and working.exists() and working.stat().st_size > 0:
         return working
     return None
 
