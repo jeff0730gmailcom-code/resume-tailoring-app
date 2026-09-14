@@ -315,42 +315,22 @@ def list_jinja_layout_slugs() -> list[str]:
 
 
 def detect_layout_slug(*hints: str) -> str:
-    """Match an upload's display/file name to an on-disk Jinja layout.
+    """Unused for private-upload rendering (kept for diagnostics).
 
-    Uses word-boundary matching so \"Quang Dang Resume\" → quang and
-    \"Dejan\" → dejan, while \"My_mateo_notes\" only matches when ``mateo``
-    appears as its own token after normalizing separators.
+    Private uploads always get their own ``template.html.jinja2`` and never
+    remap onto gallery/coded layouts by filename.
     """
-    raw = " ".join(h for h in hints if h)
-    if not raw:
-        return ""
-    haystack = _NAME_FROM_FILENAME_RE.sub(" ", raw).lower()
-    for slug in sorted(list_jinja_layout_slugs(), key=len, reverse=True):
-        if re.search(rf"\b{re.escape(slug.lower())}\b", haystack):
-            return slug
+    del hints
     return ""
 
 
 def resolve_render_layout_slug(template: ResumeTemplate) -> str:
     """Named Jinja slug for PDF render, or '' to use the upload's own Jinja file.
 
-    Private uploads that matched a coded layout (Quang → quang, Dejan → dejan)
-    render via that on-disk layout so shared includes (``_job_duties.*``) resolve.
-    Unmatched uploads render from their own ``template.html.jinja2`` copy.
+    Private uploads ALWAYS return '' so preview/download use that upload's
+    own ``template.html.jinja2``. Built-in gallery rows use their coded slug.
     """
     if getattr(template, "source_path", None) and not getattr(template, "is_builtin", False):
-        stored = (getattr(template, "layout_slug", None) or "").strip()
-        if not stored or stored == "uploaded":
-            stored = (
-                detect_layout_slug(
-                    getattr(template, "name", ""),
-                    getattr(template, "slug", ""),
-                    Path(template.source_path).name,
-                )
-                or ""
-            )
-        if stored and stored != "uploaded" and stored in list_jinja_layout_slugs():
-            return stored
         return ""
     stored = (getattr(template, "layout_slug", None) or "").strip()
     if stored and stored != "uploaded" and stored in list_jinja_layout_slugs():
@@ -372,19 +352,22 @@ def _layout_jinja_source(layout_slug: str) -> Path:
 
 
 def install_uploaded_jinja_layout(dest_dir: Path, layout_slug: str = "") -> Path:
-    """Copy the matching layout Jinja into this upload's folder.
+    """Install this upload's own ``template.html.jinja2`` into its folder.
 
-    Each upload owns its own ``template.html.jinja2`` — Dejan uploads get the
-    green dejan layout file, Quang uploads get the teal quang layout, unknown
-    samples get the generic uploaded layout. Always overwrites so repairs can
-    fix uploads that previously shared one generic file.
+    Every private upload owns a distinct file under
+    ``user_templates/<user_id>/<slug>/template.html.jinja2``. The starter
+    content comes from the shared uploaded layout (or a named layout copy
+    only when explicitly requested). Selecting that template always renders
+    this file — never another upload's or a gallery path by name.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / _UPLOADED_JINJA_NAME
-    source = _layout_jinja_source(layout_slug)
+    source = _layout_jinja_source(layout_slug or "uploaded")
     if not source.exists():
         raise FileNotFoundError(f"Missing Jinja layout source: {source}")
-    shutil.copy2(source, dest)
+    # Do not overwrite an existing per-upload Jinja — it is that template's own layout.
+    if not dest.exists():
+        shutil.copy2(source, dest)
     return dest
 
 
@@ -397,24 +380,14 @@ def uploaded_jinja_path(template: ResumeTemplate) -> Path | None:
 
 
 def ensure_uploaded_jinja_layout(template: ResumeTemplate) -> Path | None:
-    """Install/refresh this upload's own Jinja from its matched layout."""
+    """Ensure this upload has its own Jinja file; create from uploaded starter if missing."""
     if not getattr(template, "source_path", None):
         return None
     dest_dir = Path(template.source_path).parent
     if not dest_dir.exists():
         return None
     try:
-        layout = (getattr(template, "layout_slug", None) or "").strip()
-        if not layout or layout == "uploaded":
-            layout = (
-                detect_layout_slug(
-                    getattr(template, "name", ""),
-                    getattr(template, "slug", ""),
-                    Path(template.source_path).name,
-                )
-                or "uploaded"
-            )
-        return install_uploaded_jinja_layout(dest_dir, layout)
+        return install_uploaded_jinja_layout(dest_dir, "uploaded")
     except Exception:  # noqa: BLE001
         logger.warning(
             "Could not install Jinja layout for upload %s",
@@ -425,11 +398,10 @@ def ensure_uploaded_jinja_layout(template: ResumeTemplate) -> Path | None:
 
 
 def repair_uploaded_jinja_layouts() -> int:
-    """Reinstall each upload's own Jinja from its name-matched layout.
+    """Ensure every private upload has layout_slug=uploaded and its own Jinja file.
 
-    \"Quang Dang Resume\" → quang Jinja in that folder; \"Dejan\" → dejan Jinja.
-    Unknown names keep the generic uploaded layout. Always overwrites the
-    per-upload file so selecting different uploads cannot share one look.
+    Does not remap uploads onto gallery layouts. Does not overwrite an
+    existing per-upload Jinja (that file is the selected template's layout).
     """
     repaired = 0
     with session_scope() as session:
@@ -444,16 +416,16 @@ def repair_uploaded_jinja_layouts() -> int:
             dest_dir = Path(row.source_path).parent
             if not dest_dir.exists():
                 continue
-            matched = detect_layout_slug(row.name, row.slug, Path(row.source_path).name)
-            desired = matched if matched else "uploaded"
-            try:
-                install_uploaded_jinja_layout(dest_dir, desired)
-            except Exception:  # noqa: BLE001
-                logger.warning("Failed installing Jinja for %s", row.slug, exc_info=True)
-                continue
-            if (row.layout_slug or "").strip() != desired:
-                row.layout_slug = desired
-            repaired += 1
+            if (row.layout_slug or "").strip() != "uploaded":
+                row.layout_slug = "uploaded"
+                repaired += 1
+            target = dest_dir / _UPLOADED_JINJA_NAME
+            if not target.exists():
+                try:
+                    install_uploaded_jinja_layout(dest_dir, "uploaded")
+                    repaired += 1
+                except Exception:  # noqa: BLE001
+                    logger.warning("Failed installing Jinja for %s", row.slug, exc_info=True)
     return repaired
 
 
@@ -468,12 +440,10 @@ async def create_uploaded_template(
 
     Files land under backend/data/user_templates/<user_id>/<slug>/:
       source.pdf|docx           — original upload (gallery thumbnail source)
-      template.html.jinja2      — this upload's own Jinja (matched layout copy)
+      template.html.jinja2      — THIS upload's own Jinja layout
       preview.pdf               — thumbnail source
 
-    When the filename/name matches a known layout (Quang → quang, Dejan →
-    dejan), that layout's Jinja is copied into the upload folder so tailored
-    PDFs match the sample the user selected.
+    Selecting this template always renders its own ``template.html.jinja2``.
     """
     static_dir_path = static_dir_path or static_dir()
     suffix = Path(original_filename).suffix.lower()
@@ -490,8 +460,7 @@ async def create_uploaded_template(
 
     preview_pdf = dest_dir / "preview.pdf"
     name = _display_name_from_filename(original_filename)
-    matched = detect_layout_slug(original_filename, name)
-    layout_slug = matched if matched else "uploaded"
+    layout_slug = "uploaded"
     install_uploaded_jinja_layout(dest_dir, layout_slug)
 
     from app.services.docx_to_pdf import convert_docx_to_pdf
@@ -518,11 +487,7 @@ async def create_uploaded_template(
     if not served.exists():
         thumbnail_path = _write_placeholder_thumbnail(slug, static_dir_path)
 
-    layout_note = (
-        f" Uses the “{layout_slug}” layout (Jinja/Playwright)."
-        if layout_slug != "uploaded"
-        else " Uses the shared uploaded layout (Jinja/Playwright)."
-    )
+    layout_note = " Uses this upload's own Jinja layout (Jinja/Playwright)."
 
     with session_scope() as session:
         has_any = (
@@ -552,8 +517,8 @@ async def create_uploaded_template(
 def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> int:
     """Rebuild missing thumbnails for uploaded templates (wrong path / failed convert).
 
-    Also syncs layout_slug from the upload name (Quang → quang, Dejan → dejan)
-    so each private template keeps its own matched Jinja identity.
+    Also forces private uploads onto layout_slug=uploaded so they always render
+    from their own Jinja file (never a coded gallery layout by name).
     """
     static_dir_path = static_dir_path or static_dir()
     repaired = 0
@@ -565,14 +530,8 @@ def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> 
         )
         for row in rows:
             stored = (getattr(row, "layout_slug", None) or "").strip()
-            matched = detect_layout_slug(
-                row.name,
-                row.slug,
-                Path(row.source_path).name if row.source_path else "",
-            )
-            desired = matched if matched else ("uploaded" if row.source_path else stored)
-            if row.source_path and stored != desired:
-                row.layout_slug = desired
+            if row.source_path and stored != "uploaded":
+                row.layout_slug = "uploaded"
                 repaired += 1
             thumb = static_dir_path / row.thumbnail_path
             if thumb.exists() and thumb.stat().st_size > 0:

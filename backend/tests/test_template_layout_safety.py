@@ -1,4 +1,4 @@
-"""Each uploaded template keeps its own matched Jinja layout."""
+"""Each uploaded template owns its Jinja file; selection always uses that file."""
 from __future__ import annotations
 
 import sys
@@ -20,46 +20,28 @@ from app.services.template_registry import (  # noqa: E402
 
 
 @pytest.mark.parametrize(
-    "hints, expected",
+    "hints",
     [
-        (("Dejan Pavlovic.pdf", "Dejan Pavlovic"), "dejan"),
-        (("Dejan.pdf", "Dejan"), "dejan"),
-        (("Quang Dang Resume.pdf", "Quang Dang Resume"), "quang"),
-        (("Mateo_CV.pdf", "Mateo"), "mateo"),
-        (("Nemanja sample.docx", "Nemanja"), "nemanja"),
-        (("Marek_template.pdf", "Marek"), "marek"),
-        (("My custom sample.pdf", "My custom sample"), ""),
+        ("Dejan Pavlovic.pdf", "Dejan Pavlovic"),
+        ("Quang Dang Resume.pdf", "Quang Dang Resume"),
+        ("Mateo_CV.pdf", "Mateo"),
+        ("My custom sample.pdf", "My custom sample"),
     ],
 )
-def test_detect_layout_slug_word_boundary(hints, expected):
-    assert detect_layout_slug(*hints) == expected
+def test_detect_layout_slug_never_remaps_uploads(hints):
+    assert detect_layout_slug(*hints) == ""
 
 
-def test_resolve_render_layout_slug_matched_upload_uses_named_layout():
-    """Quang/Dejan uploads must resolve to their coded layout (includes work)."""
-    for layout in ("dejan", "quang", "mateo"):
+def test_resolve_render_layout_slug_uploads_always_own_file():
+    for layout in ("uploaded", "dejan", "quang", "mateo", ""):
         template = SimpleNamespace(
             source_path="/tmp/user_templates/1/u1-abc/source.pdf",
             is_builtin=False,
             layout_slug=layout,
             slug="u1-abc",
-            name=layout.title(),
+            name="Dejan Pavlovic",
         )
-        from app.services.template_registry import list_jinja_layout_slugs
-
-        if layout in list_jinja_layout_slugs():
-            assert resolve_render_layout_slug(template) == layout
-
-
-def test_resolve_render_layout_slug_unknown_upload_uses_own_file():
-    template = SimpleNamespace(
-        source_path="/tmp/user_templates/1/u1-abc/source.pdf",
-        is_builtin=False,
-        layout_slug="uploaded",
-        slug="u1-abc",
-        name="My custom sample",
-    )
-    assert resolve_render_layout_slug(template) == ""
+        assert resolve_render_layout_slug(template) == ""
 
 
 def test_resolve_render_layout_slug_builtin_uses_slug():
@@ -75,44 +57,22 @@ def test_resolve_render_layout_slug_builtin_uses_slug():
         assert resolve_render_layout_slug(template) == "quang"
 
 
-def test_install_copies_distinct_layouts(tmp_path: Path):
-    dejan_dir = tmp_path / "dejan_upload"
-    quang_dir = tmp_path / "quang_upload"
-    install_uploaded_jinja_layout(dejan_dir, "dejan")
-    install_uploaded_jinja_layout(quang_dir, "quang")
-    dejan_text = (dejan_dir / "template.html.jinja2").read_text(encoding="utf-8")
-    quang_text = (quang_dir / "template.html.jinja2").read_text(encoding="utf-8")
-    assert dejan_text != quang_text
-    assert "#3a9d51" in dejan_text or "accent-bar" in dejan_text
-    assert "#3a738c" in quang_text or "text-align: center" in quang_text
-    assert _layout_jinja_source("dejan").name == "template.html.jinja2"
+def test_install_creates_own_jinja_without_overwrite(tmp_path: Path):
+    dest = tmp_path / "upload_a"
+    path1 = install_uploaded_jinja_layout(dest, "uploaded")
+    original = path1.read_text(encoding="utf-8")
+    path1.write_text(original + "\n<!-- owned by this upload -->\n", encoding="utf-8")
+    path2 = install_uploaded_jinja_layout(dest, "quang")
+    assert path1 == path2
+    assert "owned by this upload" in path2.read_text(encoding="utf-8")
+    assert _layout_jinja_source("uploaded").exists()
 
 
-def test_render_html_from_copied_dejan_resolves_includes(tmp_path: Path):
-    from app.models.schemas import (
-        ContactInfo,
-        EducationEntry,
-        ExperienceEntry,
-        SkillCategories,
-        TailoredResumeContent,
-    )
-    from app.services.template_renderer import render_html_from_file
-
-    install_uploaded_jinja_layout(tmp_path, "dejan")
-    resume = TailoredResumeContent(
-        contact=ContactInfo(name="Test User", email="t@e.com"),
-        summary="Summary",
-        skills=SkillCategories(languages=["Python"]),
-        experience=[
-            ExperienceEntry(
-                title="Engineer",
-                company="Acme",
-                dates="2020 - 2024",
-                bullets=["Did work"] * 8,
-            )
-        ],
-        education=[EducationEntry(degree="BS", institution="Uni", dates="2016")],
-    )
-    html = render_html_from_file(tmp_path / "template.html.jinja2", resume)
-    assert "Test User" in html
-    assert "Acme" in html
+def test_two_uploads_get_separate_jinja_files(tmp_path: Path):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    install_uploaded_jinja_layout(a, "uploaded")
+    install_uploaded_jinja_layout(b, "uploaded")
+    assert (a / "template.html.jinja2").exists()
+    assert (b / "template.html.jinja2").exists()
+    assert (a / "template.html.jinja2").resolve() != (b / "template.html.jinja2").resolve()
