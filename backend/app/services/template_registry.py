@@ -334,11 +334,23 @@ def detect_layout_slug(*hints: str) -> str:
 def resolve_render_layout_slug(template: ResumeTemplate) -> str:
     """Named Jinja slug for PDF render, or '' to use the upload's own Jinja file.
 
-    Private uploads always render from their own ``template.html.jinja2``
-    (a per-upload copy of the matched layout). Built-in gallery rows use
-    their coded slug.
+    Private uploads that matched a coded layout (Quang → quang, Dejan → dejan)
+    render via that on-disk layout so shared includes (``_job_duties.*``) resolve.
+    Unmatched uploads render from their own ``template.html.jinja2`` copy.
     """
     if getattr(template, "source_path", None) and not getattr(template, "is_builtin", False):
+        stored = (getattr(template, "layout_slug", None) or "").strip()
+        if not stored or stored == "uploaded":
+            stored = (
+                detect_layout_slug(
+                    getattr(template, "name", ""),
+                    getattr(template, "slug", ""),
+                    Path(template.source_path).name,
+                )
+                or ""
+            )
+        if stored and stored != "uploaded" and stored in list_jinja_layout_slugs():
+            return stored
         return ""
     stored = (getattr(template, "layout_slug", None) or "").strip()
     if stored and stored != "uploaded" and stored in list_jinja_layout_slugs():

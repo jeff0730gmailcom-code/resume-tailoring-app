@@ -35,16 +35,31 @@ def test_detect_layout_slug_word_boundary(hints, expected):
     assert detect_layout_slug(*hints) == expected
 
 
-def test_resolve_render_layout_slug_uploads_use_own_file():
-    """Uploads always resolve to '' so render uses the per-folder Jinja copy."""
-    for layout in ("uploaded", "dejan", "quang", "mateo", ""):
+def test_resolve_render_layout_slug_matched_upload_uses_named_layout():
+    """Quang/Dejan uploads must resolve to their coded layout (includes work)."""
+    for layout in ("dejan", "quang", "mateo"):
         template = SimpleNamespace(
             source_path="/tmp/user_templates/1/u1-abc/source.pdf",
             is_builtin=False,
             layout_slug=layout,
             slug="u1-abc",
+            name=layout.title(),
         )
-        assert resolve_render_layout_slug(template) == ""
+        from app.services.template_registry import list_jinja_layout_slugs
+
+        if layout in list_jinja_layout_slugs():
+            assert resolve_render_layout_slug(template) == layout
+
+
+def test_resolve_render_layout_slug_unknown_upload_uses_own_file():
+    template = SimpleNamespace(
+        source_path="/tmp/user_templates/1/u1-abc/source.pdf",
+        is_builtin=False,
+        layout_slug="uploaded",
+        slug="u1-abc",
+        name="My custom sample",
+    )
+    assert resolve_render_layout_slug(template) == ""
 
 
 def test_resolve_render_layout_slug_builtin_uses_slug():
@@ -71,3 +86,33 @@ def test_install_copies_distinct_layouts(tmp_path: Path):
     assert "#3a9d51" in dejan_text or "accent-bar" in dejan_text
     assert "#3a738c" in quang_text or "text-align: center" in quang_text
     assert _layout_jinja_source("dejan").name == "template.html.jinja2"
+
+
+def test_render_html_from_copied_dejan_resolves_includes(tmp_path: Path):
+    from app.models.schemas import (
+        ContactInfo,
+        EducationEntry,
+        ExperienceEntry,
+        SkillCategories,
+        TailoredResumeContent,
+    )
+    from app.services.template_renderer import render_html_from_file
+
+    install_uploaded_jinja_layout(tmp_path, "dejan")
+    resume = TailoredResumeContent(
+        contact=ContactInfo(name="Test User", email="t@e.com"),
+        summary="Summary",
+        skills=SkillCategories(languages=["Python"]),
+        experience=[
+            ExperienceEntry(
+                title="Engineer",
+                company="Acme",
+                dates="2020 - 2024",
+                bullets=["Did work"] * 8,
+            )
+        ],
+        education=[EducationEntry(degree="BS", institution="Uni", dates="2016")],
+    )
+    html = render_html_from_file(tmp_path / "template.html.jinja2", resume)
+    assert "Test User" in html
+    assert "Acme" in html

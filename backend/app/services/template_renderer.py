@@ -60,6 +60,10 @@ _env = Environment(
 
 _playwright = None
 _browser: Browser | None = None
+# Under uvicorn --reload on Windows, async Playwright often cannot spawn
+# subprocesses (NotImplementedError / TargetClosedError). Once that happens,
+# skip the async path and use sync Playwright in a worker thread.
+_async_playwright_unusable = False
 
 
 async def start_browser() -> None:
@@ -72,14 +76,17 @@ async def start_browser() -> None:
     Chrome/Edge already installed on this machine via Playwright's
     `channel=` option. PDF rendering is the same Chromium print engine
     either way."""
-    global _playwright, _browser
+    global _playwright, _browser, _async_playwright_unusable
+    if _async_playwright_unusable:
+        return
     if _browser is not None:
         return
     try:
         _playwright = await async_playwright().start()
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to start Playwright - PDF rendering will be unavailable")
+        logger.exception("Failed to start Playwright - PDF rendering will use sync fallback")
         _playwright, _browser = None, None
+        _async_playwright_unusable = True
         return
 
     # Prefer system Edge/Chrome on Windows first — bundled Chromium is often
@@ -107,7 +114,7 @@ async def start_browser() -> None:
             logger.warning("Could not launch Playwright via %s: %s", label, exc)
 
     logger.exception(
-        "Failed to launch Playwright Chromium/Chrome/Edge - PDF rendering will be unavailable",
+        "Failed to launch Playwright Chromium/Chrome/Edge - PDF rendering will use sync fallback",
         exc_info=last_error,
     )
     try:
@@ -115,11 +122,14 @@ async def start_browser() -> None:
     except Exception:  # noqa: BLE001
         pass
     _playwright, _browser = None, None
+    _async_playwright_unusable = True
 
 
 async def ensure_browser() -> bool:
     """Start Playwright on demand if startup failed or the browser died."""
-    global _browser
+    global _browser, _async_playwright_unusable
+    if _async_playwright_unusable:
+        return False
     if _browser is not None:
         try:
             # Cheap liveness check — closed browsers reject new pages.
@@ -187,9 +197,15 @@ def render_html(slug: str, resume: TailoredResumeContent) -> str:
 
 
 def render_html_from_file(template_path: Path, resume: TailoredResumeContent) -> str:
-    """Render a user-uploaded Jinja template file (same engine as Mateo/Marek)."""
+    """Render a user-uploaded Jinja template file (same engine as Mateo/Marek).
+
+    Search path includes the upload folder first, then ``templates/resumes``
+    so shared includes like ``_job_duties.css.jinja2`` still resolve when a
+    matched layout (dejan/quang/…) was copied into the upload folder.
+    """
+    search_paths = [str(template_path.parent), str(_TEMPLATES_DIR)]
     env = Environment(
-        loader=FileSystemLoader(str(template_path.parent)),
+        loader=FileSystemLoader(search_paths),
         autoescape=select_autoescape(["html", "jinja2"]),
     )
     template = env.get_template(template_path.name)
@@ -257,19 +273,21 @@ async def render_html_to_pdf(html: str) -> bytes | None:
     (common on Windows + uvicorn reload: NotImplementedError on subprocess),
     falls back to sync Playwright in a worker thread.
     """
-    global _browser
-    try:
-        if await ensure_browser() and _browser is not None:
-            page = await _browser.new_page()
-            try:
-                await page.set_content(html, wait_until="load")
-                return await page.pdf(format="A4", print_background=True)
-            finally:
-                await page.close()
-    except Exception:  # noqa: BLE001 - fall through to sync path
-        logger.warning("Async Playwright PDF render failed — trying sync fallback", exc_info=True)
-        _browser = None
+    global _browser, _async_playwright_unusable
+    if not _async_playwright_unusable:
+        try:
+            if await ensure_browser() and _browser is not None:
+                page = await _browser.new_page()
+                try:
+                    await page.set_content(html, wait_until="load")
+                    return await page.pdf(format="A4", print_background=True)
+                finally:
+                    await page.close()
+        except Exception:  # noqa: BLE001 - fall through to sync path
+            logger.warning("Async Playwright PDF render failed — trying sync fallback", exc_info=True)
+            _browser = None
+            _async_playwright_unusable = True
 
-    logger.warning("Using sync Playwright PDF render in a worker thread")
+    logger.info("Using sync Playwright PDF render in a worker thread")
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _sync_render_html_to_pdf, html)

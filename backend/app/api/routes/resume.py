@@ -409,9 +409,8 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
 
     pdf_path = file_utils.get_tailored_pdf_path(file_id)
     with perf.stage("PDF Generation"):
-        # Private uploads render from their own Jinja file (a per-upload copy
-        # of the matched layout: Quang→quang, Dejan→dejan, …). Built-ins use
-        # named gallery layouts.
+        # Matched uploads (Quang/Dejan) render via their named on-disk layout
+        # so shared Jinja includes resolve. Unmatched uploads use their own file.
         named_layout = resolve_render_layout_slug(template)
         if named_layout:
             pdf_bytes = await render_pdf(named_layout, tailored)
