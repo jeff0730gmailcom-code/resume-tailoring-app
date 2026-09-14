@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{ resume.contact.name }}</title>
+<style>
+  /* Uploaded-sample layout (Mateo/Marek-style engine: Jinja + Playwright).
+     Visual model matches a clean single-column CV like Dejan's sample:
+     large name, rule, contact row, Summary / Education / Skills / Experience. */
+  @page { margin: 48px 52px 48px 52px; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    color: #1a1a1a;
+    font-size: 10.5pt;
+    line-height: 1.45;
+  }
+  h1.name {
+    margin: 0 0 8px;
+    font-size: 26pt;
+    font-weight: 700;
+    line-height: 1.15;
+    color: #111;
+  }
+  hr.rule {
+    border: none;
+    border-top: 1.5px solid #222;
+    margin: 0 0 10px;
+  }
+  .contact {
+    margin: 0 0 18px;
+    font-size: 9.5pt;
+    color: #444;
+  }
+  .contact span:not(:last-child)::after {
+    content: "  |  ";
+    color: #999;
+  }
+  h2.section {
+    margin: 16px 0 6px;
+    font-size: 12pt;
+    font-weight: 700;
+    color: #111;
+  }
+  p.summary { margin: 0; color: #333; }
+  p.skills-line { margin: 0 0 4px; color: #333; }
+  .edu-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 2px 0;
+  }
+  .edu-main { color: #222; }
+  .edu-dates { font-size: 9.5pt; color: #666; white-space: nowrap; }
+  .job { margin-bottom: 14px; }
+  .job:last-child { margin-bottom: 0; }
+  table.job-header { width: 100%; border-collapse: collapse; margin: 0 0 4px; }
+  table.job-header td { padding: 0; vertical-align: baseline; }
+  .job-title { font-weight: 700; color: #111; }
+  .job-dates { font-size: 9.5pt; color: #666; white-space: nowrap; text-align: right; }
+  .job-duties { margin: 0; }
+  p.job-duty {
+    margin: 0 0 3px;
+    padding-left: 14px;
+    position: relative;
+    color: #333;
+  }
+  p.job-duty .duty-mark {
+    position: absolute;
+    left: 0;
+    color: #111;
+  }
+  h2.section { break-after: avoid; page-break-after: avoid; }
+  .job-header { break-after: avoid; page-break-after: avoid; }
+  p.job-duty { break-inside: avoid; page-break-inside: avoid; }
+  p, li { orphans: 3; widows: 3; }
+</style>
+</head>
+<body>
+  <h1 class="name">{{ resume.contact.name }}</h1>
+  <hr class="rule" />
+  <p class="contact">
+    {% if resume.contact.email %}<span>{{ resume.contact.email }}</span>{% endif %}
+    {% if resume.contact.phone %}<span>{{ resume.contact.phone }}</span>{% endif %}
+    {% if resume.contact.location %}<span>{{ resume.contact.location }}</span>{% endif %}
+    {% if resume.contact.linkedin %}<span>{{ resume.contact.linkedin }}</span>{% endif %}
+  </p>
+
+  {% if resume.summary %}
+  <h2 class="section">Summary</h2>
+  <p class="summary">{{ resume.summary }}</p>
+  {% endif %}
+
+  {% if resume.education %}
+  <h2 class="section">Education</h2>
+  {% for edu in resume.education %}
+  <div class="edu-row">
+    <div class="edu-main">
+      {% if edu.institution %}<strong>{{ edu.institution }}</strong>{% endif %}
+      {% if edu.institution and edu.degree %} / {% endif %}
+      {% if edu.degree %}{{ edu.degree }}{% endif %}
+    </div>
+    {% if edu.dates %}<div class="edu-dates">{{ edu.dates }}</div>{% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if resume.skills.languages or resume.skills.backend or resume.skills.frontend or resume.skills.cloud or resume.skills.devops or resume.skills.databases or resume.skills.ai or resume.skills.tools %}
+  <h2 class="section">Skills &amp; Abilities</h2>
+  {% if resume.skills.languages %}<p class="skills-line"><strong>Languages:</strong> {{ resume.skills.languages | join(", ") }}</p>{% endif %}
+  {% if resume.skills.backend %}<p class="skills-line"><strong>Backend:</strong> {{ resume.skills.backend | join(", ") }}</p>{% endif %}
+  {% if resume.skills.frontend %}<p class="skills-line"><strong>Frontend:</strong> {{ resume.skills.frontend | join(", ") }}</p>{% endif %}
+  {% if resume.skills.cloud %}<p class="skills-line"><strong>Cloud:</strong> {{ resume.skills.cloud | join(", ") }}</p>{% endif %}
+  {% if resume.skills.devops %}<p class="skills-line"><strong>DevOps:</strong> {{ resume.skills.devops | join(", ") }}</p>{% endif %}
+  {% if resume.skills.databases %}<p class="skills-line"><strong>Databases:</strong> {{ resume.skills.databases | join(", ") }}</p>{% endif %}
+  {% if resume.skills.ai %}<p class="skills-line"><strong>AI:</strong> {{ resume.skills.ai | join(", ") }}</p>{% endif %}
+  {% if resume.skills.tools %}<p class="skills-line"><strong>Tools:</strong> {{ resume.skills.tools | join(", ") }}</p>{% endif %}
+  {% endif %}
+
+  {% if resume.experience %}
+  <h2 class="section">Experience</h2>
+  {% for job in resume.experience %}
+  <div class="job">
+    <table class="job-header">
+      <tr>
+        <td class="job-title">
+          {% if job.title %}{{ job.title }}{% endif %}
+          {% if job.title and job.company %} / {% endif %}
+          {% if job.company %}{{ job.company }}{% endif %}
+        </td>
+        <td class="job-dates">{{ job.dates }}</td>
+      </tr>
+    </table>
+    {% if job.bullets %}
+    <div class="job-duties">
+      {% for bullet in job.bullets %}
+      <p class="job-duty"><span class="duty-mark">&#8226;</span>{{ bullet }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+</body>
+</html>

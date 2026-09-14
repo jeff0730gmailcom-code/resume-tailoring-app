@@ -41,6 +41,75 @@ _TEMPLATE_META: dict[str, tuple[str, str]] = {
 
 _ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx"}
 _NAME_FROM_FILENAME_RE = re.compile(r"[_\-]+")
+_UPLOADED_JINJA_NAME = "template.html.jinja2"
+_UPLOADED_JINJA_SOURCE = _TEMPLATES_DIR / "_uploaded" / _UPLOADED_JINJA_NAME
+
+
+def install_uploaded_jinja_layout(dest_dir: Path) -> Path:
+    """Copy the Mateo/Marek-style Jinja layout into an upload folder."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / _UPLOADED_JINJA_NAME
+    if not _UPLOADED_JINJA_SOURCE.exists():
+        raise FileNotFoundError(f"Missing uploaded-template Jinja source: {_UPLOADED_JINJA_SOURCE}")
+    shutil.copy2(_UPLOADED_JINJA_SOURCE, dest)
+    return dest
+
+
+def uploaded_jinja_path(template: ResumeTemplate) -> Path | None:
+    """Return the Jinja file for an uploaded template, if present."""
+    if not getattr(template, "source_path", None):
+        return None
+    path = Path(template.source_path).parent / _UPLOADED_JINJA_NAME
+    return path if path.exists() else None
+
+
+def ensure_uploaded_jinja_layout(template: ResumeTemplate) -> Path | None:
+    """Install the shared Jinja layout next to an upload if missing."""
+    if not getattr(template, "source_path", None):
+        return None
+    dest_dir = Path(template.source_path).parent
+    if not dest_dir.exists():
+        return None
+    existing = dest_dir / _UPLOADED_JINJA_NAME
+    if existing.exists():
+        return existing
+    try:
+        return install_uploaded_jinja_layout(dest_dir)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Could not install Jinja layout for upload %s",
+            getattr(template, "slug", "?"),
+            exc_info=True,
+        )
+        return None
+
+
+def repair_uploaded_jinja_layouts() -> int:
+    """Ensure every active upload has the Mateo-style Jinja template file."""
+    repaired = 0
+    with session_scope() as session:
+        rows = (
+            session.query(ResumeTemplate)
+            .filter_by(is_builtin=False, is_active=True)
+            .all()
+        )
+        for row in rows:
+            if not row.source_path:
+                continue
+            dest_dir = Path(row.source_path).parent
+            if not dest_dir.exists():
+                continue
+            target = dest_dir / _UPLOADED_JINJA_NAME
+            if target.exists():
+                row.layout_slug = "uploaded"
+                continue
+            try:
+                install_uploaded_jinja_layout(dest_dir)
+                row.layout_slug = "uploaded"
+                repaired += 1
+            except Exception:  # noqa: BLE001
+                logger.warning("Failed installing Jinja for %s", row.slug, exc_info=True)
+    return repaired
 
 
 def ensure_templates_schema() -> None:
@@ -335,17 +404,15 @@ async def create_uploaded_template(
     content: bytes,
     static_dir_path: Path | None = None,
 ) -> ResumeTemplate:
-    """Store a user-uploaded PDF/DOCX sample CV as a private template.
+    """Store a user-uploaded PDF/DOCX sample as a private template.
 
     Files land under backend/data/user_templates/<user_id>/<slug>/:
-      source.pdf|docx  — original upload
-      working.docx     — editable copy used for in-place fill (when available)
-      preview.pdf      — first-page source for the gallery thumbnail
+      source.pdf|docx           — original upload (gallery thumbnail source)
+      template.html.jinja2      — Mateo/Marek-style Jinja layout for PDF output
+      preview.pdf               — thumbnail source
     Thumbnail PNG: backend/static/template_previews/<slug>.png
-    DB row: resume_templates (user_id, source_path, layout_slug='', …)
 
-    Uploads always keep their own sample layout. They are never linked to an
-    inactive coded Jinja layout (e.g. dejan) just because the filename matches.
+    Tailored resumes use Jinja + Playwright (same engine as Mateo/Marek).
     """
     static_dir_path = static_dir_path or static_dir()
     suffix = Path(original_filename).suffix.lower()
@@ -360,37 +427,20 @@ async def create_uploaded_template(
     source_path = dest_dir / f"source{suffix}"
     source_path.write_bytes(content)
 
-    working_docx = dest_dir / "working.docx"
     preview_pdf = dest_dir / "preview.pdf"
     name = _display_name_from_filename(original_filename)
-    # Uploaded samples are filled in place — do not bind them to another Jinja layout.
-    layout_slug = ""
+    install_uploaded_jinja_layout(dest_dir)
 
-    from app.services.docx_to_pdf import convert_docx_to_pdf, convert_to_docx
+    from app.services.docx_to_pdf import convert_docx_to_pdf
 
     preview_ok = False
     if suffix == ".docx":
-        shutil.copy2(source_path, working_docx)
-        preview_ok = await convert_docx_to_pdf(working_docx, preview_pdf)
+        preview_ok = await convert_docx_to_pdf(source_path, preview_pdf)
         if not preview_ok:
             logger.warning("DOCX→PDF failed for uploaded template %s; using placeholder thumbnail", slug)
     else:
         shutil.copy2(source_path, preview_pdf)
         preview_ok = preview_pdf.exists() and preview_pdf.stat().st_size > 0
-        ok = await convert_to_docx(source_path, working_docx)
-        if not ok:
-            # One retry — Word is often briefly busy during first open of a PDF.
-            from app.services.docx_to_pdf import _recover_from_hang
-
-            _recover_from_hang()
-            working_docx.unlink(missing_ok=True)
-            ok = await convert_to_docx(source_path, working_docx)
-        if not ok:
-            working_docx.unlink(missing_ok=True)
-            logger.warning(
-                "PDF→DOCX failed for uploaded template %s — tailored output needs Word or a DOCX re-upload",
-                slug,
-            )
 
     if preview_ok and preview_pdf.exists():
         thumbnail_path = _ensure_thumbnail(slug, preview_pdf, static_dir_path, force=True)
@@ -401,7 +451,6 @@ async def create_uploaded_template(
             "Preview unavailable — re-upload as PDF if this persists",
         )
 
-    # Guarantee the served file exists under the mounted static directory.
     served = static_dir_path / thumbnail_path
     if not served.exists():
         thumbnail_path = _write_placeholder_thumbnail(slug, static_dir_path)
@@ -415,13 +464,13 @@ async def create_uploaded_template(
         row = ResumeTemplate(
             slug=slug,
             name=name,
-            description="Uploaded sample CV used as your private resume template.",
+            description="Uploaded sample — tailored with the same Jinja/Playwright engine as Mateo/Marek.",
             thumbnail_path=thumbnail_path,
             is_active=True,
             user_id=user_id,
             is_builtin=False,
             source_path=str(source_path.resolve()),
-            layout_slug=layout_slug,
+            layout_slug="uploaded",
             is_default=has_any == 0,
         )
         session.add(row)
@@ -447,14 +496,15 @@ def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> 
         )
         for row in rows:
             stored = (getattr(row, "layout_slug", None) or "").strip()
-            if stored and stored not in _BUILTIN_SLUGS:
-                # e.g. layout_slug='dejan' on an upload named Dejan Pavlovic
-                row.layout_slug = ""
+            if stored and stored not in _BUILTIN_SLUGS and stored != "uploaded":
+                # Clear hijacks like layout_slug='dejan' on an upload named Dejan.
+                row.layout_slug = "uploaded" if row.source_path else ""
                 repaired += 1
-            elif stored and stored in _BUILTIN_SLUGS and row.source_path:
-                # Uploads must not inherit a gallery Jinja layout by name either.
-                row.layout_slug = ""
+            elif stored in _BUILTIN_SLUGS and row.source_path:
+                row.layout_slug = "uploaded"
                 repaired += 1
+            elif row.source_path and stored != "uploaded":
+                row.layout_slug = "uploaded"
             thumb = static_dir_path / row.thumbnail_path
             if thumb.exists() and thumb.stat().st_size > 0:
                 continue
@@ -581,19 +631,19 @@ def delete_templates_for_user(user_id: int) -> None:
 def template_has_jinja_layout(template: ResumeTemplate) -> bool:
     """True when this template should render via Jinja2 + Playwright.
 
-    Built-in gallery layouts always have an on-disk HTML template. User
-    uploads do not - they are filled as DOCX. Prefer the on-disk Jinja file
-    (and known builtin slugs) over the is_builtin flag alone, so a stale
-    DB flag cannot accidentally route Nemanja/Mateo/... through the
-    uploaded-template path (which used to fall back to Mateo).
+    Built-in gallery layouts and uploaded samples (with template.html.jinja2)
+    both use the Mateo/Marek engine.
     """
     slug = (template.slug or "").strip()
-    if not slug:
-        return False
     if slug in _BUILTIN_SLUGS:
         return True
-    if (_TEMPLATES_DIR / slug / "template.html.jinja2").exists():
+    if slug and (_TEMPLATES_DIR / slug / "template.html.jinja2").exists():
         return True
+    if uploaded_jinja_path(template) is not None:
+        return True
+    if getattr(template, "source_path", None):
+        # Uploads always get a Jinja file; install on demand if missing.
+        return ensure_uploaded_jinja_layout(template) is not None
     return bool(getattr(template, "is_builtin", False)) and not getattr(template, "source_path", "")
 
 

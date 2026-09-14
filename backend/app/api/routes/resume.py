@@ -64,8 +64,10 @@ from app.services.template_registry import (
     list_templates_for_user,
     set_default_template,
     template_has_jinja_layout,
+    ensure_uploaded_jinja_layout,
+    uploaded_jinja_path,
 )
-from app.services.template_renderer import render_pdf
+from app.services.template_renderer import render_pdf, render_pdf_from_file
 from app.services.uploaded_template_render import render_uploaded_template_pdf
 from app.utils import file_utils
 from app.utils.timing import PerfReport
@@ -407,7 +409,11 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
 
     pdf_path = file_utils.get_tailored_pdf_path(file_id)
     with perf.stage("PDF Generation"):
-        if template_has_jinja_layout(template):
+        jinja_file = ensure_uploaded_jinja_layout(template) if getattr(template, "source_path", None) else None
+        if jinja_file is not None:
+            # Uploaded samples: same Jinja + Playwright engine as Mateo/Marek.
+            pdf_bytes = await render_pdf_from_file(jinja_file, tailored)
+        elif template_has_jinja_layout(template):
             pdf_bytes = await render_pdf(template.slug, tailored)
         else:
             pdf_bytes = await render_uploaded_template_pdf(
@@ -417,27 +423,11 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
                 work_dir=file_utils.get_file_dir(file_id),
             )
     if pdf_bytes is None:
-        if getattr(template, "source_path", None) and not template_has_jinja_layout(template):
-            source = Path(template.source_path)
-            working = source.parent / "working.docx" if source else None
-            has_working = bool(working and working.exists() and working.stat().st_size > 0)
-            if not has_working:
-                detail = (
-                    f"Could not prepare your uploaded template “{template.name}” for editing. "
-                    "Re-upload it as a DOCX file (recommended), or as a PDF with Microsoft Word installed."
-                )
-            else:
-                detail = (
-                    f"Your uploaded template “{template.name}” was filled, but PDF preview/export failed. "
-                    "Install Microsoft Edge or Chrome (for Playwright), or ensure Word can export DOCX to PDF, then try again."
-                )
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
                 "Could not render the resume PDF for this template. "
-                "For built-in templates, install Chrome/Edge or run `playwright install chromium`. "
-                "For an uploaded sample, re-upload a DOCX (or PDF on a machine with Word) so the layout can be filled."
+                "Install Chrome/Edge or run `playwright install chromium`, then try again."
             ),
         )
     pdf_path.write_bytes(pdf_bytes)

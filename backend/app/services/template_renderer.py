@@ -186,6 +186,16 @@ def render_html(slug: str, resume: TailoredResumeContent) -> str:
     return template.render(resume=_sanitize_resume_text(resume))
 
 
+def render_html_from_file(template_path: Path, resume: TailoredResumeContent) -> str:
+    """Render a user-uploaded Jinja template file (same engine as Mateo/Marek)."""
+    env = Environment(
+        loader=FileSystemLoader(str(template_path.parent)),
+        autoescape=select_autoescape(["html", "jinja2"]),
+    )
+    template = env.get_template(template_path.name)
+    return template.render(resume=_sanitize_resume_text(resume))
+
+
 def _sanitize_resume_text(resume: TailoredResumeContent) -> TailoredResumeContent:
     """Drop PDF-extraction junk so templates never render a broken square
     or a packed 'Major: … | DEGREE | SCHOOL' education line."""
@@ -222,6 +232,12 @@ async def render_pdf(slug: str, resume: TailoredResumeContent) -> bytes | None:
     soft failure, same spirit as docx_to_pdf's boolean-returning
     conversions."""
     html = render_html(slug, resume)
+    return await render_html_to_pdf(html)
+
+
+async def render_pdf_from_file(template_path: Path, resume: TailoredResumeContent) -> bytes | None:
+    """Render an on-disk Jinja file (uploaded templates) to PDF bytes."""
+    html = render_html_from_file(template_path, resume)
     return await render_html_to_pdf(html)
 
 
