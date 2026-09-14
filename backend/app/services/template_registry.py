@@ -473,6 +473,55 @@ def repair_uploaded_template_thumbnails(static_dir_path: Path | None = None) -> 
     return repaired
 
 
+def repair_uploaded_working_docx() -> int:
+    """Ensure every active uploaded template has a fillable working.docx.
+
+    Uses Word COM when possible, otherwise PyMuPDF. Safe to call from sync
+    startup code (no nested event loop).
+    """
+    from app.services.docx_to_pdf import _convert_to_docx_sync, _pdf_to_docx_pymupdf
+
+    repaired = 0
+    with session_scope() as session:
+        rows = (
+            session.query(ResumeTemplate)
+            .filter_by(is_builtin=False, is_active=True)
+            .all()
+        )
+        targets: list[Path] = []
+        for row in rows:
+            if not row.source_path:
+                continue
+            source = Path(row.source_path)
+            if not source.exists():
+                continue
+            working = source.parent / "working.docx"
+            if working.exists() and working.stat().st_size > 0:
+                continue
+            targets.append(source)
+
+    for source in targets:
+        working = source.parent / "working.docx"
+        ok = False
+        if source.suffix.lower() == ".docx":
+            try:
+                shutil.copy2(source, working)
+                ok = working.exists() and working.stat().st_size > 0
+            except Exception:  # noqa: BLE001
+                logger.warning("Could not copy DOCX template %s", source, exc_info=True)
+        else:
+            ok = _convert_to_docx_sync(source, working)
+            if not ok and source.suffix.lower() == ".pdf":
+                working.unlink(missing_ok=True)
+                ok = _pdf_to_docx_pymupdf(source, working)
+        if ok:
+            repaired += 1
+            logger.info("Repaired working.docx for uploaded template %s", source.parent.name)
+        else:
+            logger.warning("Could not repair working.docx for %s", source)
+    return repaired
+
+
 def set_default_template(*, user_id: int, slug: str) -> ResumeTemplate:
     with session_scope() as session:
         target = (

@@ -29,8 +29,10 @@ _WD_FORMAT_XML_DOCUMENT = 16  # .docx
 _WD_ALERTS_NONE = 0
 
 # DOCX→PDF is usually fast on a warm instance; PDF→DOCX needs more headroom.
+# Keep PDF→DOCX relatively short so uploaded templates can fall back to PyMuPDF
+# instead of hanging the preview request when Word COM is stuck under uvicorn.
 _DOCX_TO_PDF_TIMEOUT_SECONDS = 45.0
-_TO_DOCX_TIMEOUT_SECONDS = 90.0
+_TO_DOCX_TIMEOUT_SECONDS = 25.0
 
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="word-com")
 _word_app: Any = None
@@ -168,8 +170,72 @@ def _convert_to_docx_sync(source_path: Path, docx_path: Path) -> bool:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def _pdf_to_docx_pymupdf(source_path: Path, docx_path: Path) -> bool:
+    """Word-free PDF → DOCX using PyMuPDF text extraction + python-docx.
+
+    Layout is approximate (reading order by blocks), but produces a fillable
+    DOCX so uploaded PDF templates work when Word COM is unavailable or hangs
+    under uvicorn.
+    """
+    try:
+        import fitz
+        from docx import Document
+    except ImportError:
+        return False
+
+    try:
+        pdf = fitz.open(source_path)
+    except Exception:  # noqa: BLE001
+        logger.warning("PyMuPDF could not open PDF %s", source_path, exc_info=True)
+        return False
+
+    try:
+        document = Document()
+        wrote_any = False
+        for page_index, page in enumerate(pdf):
+            blocks = page.get_text("blocks")
+            # blocks: (x0, y0, x1, y1, text, block_no, ...)
+            blocks = sorted(
+                (b for b in blocks if isinstance(b, (list, tuple)) and len(b) >= 5),
+                key=lambda b: (round(float(b[1]), 1), round(float(b[0]), 1)),
+            )
+            if page_index > 0 and blocks:
+                document.add_page_break()
+            for block in blocks:
+                text = str(block[4] or "").replace("\r", "").strip()
+                if not text:
+                    continue
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if line:
+                        document.add_paragraph(line)
+                        wrote_any = True
+        if not wrote_any:
+            logger.warning("PyMuPDF extracted no text from %s", source_path)
+            return False
+        docx_path.parent.mkdir(parents=True, exist_ok=True)
+        document.save(str(docx_path))
+        ok = docx_path.exists() and docx_path.stat().st_size > 0
+        if ok:
+            logger.info("Converted PDF→DOCX via PyMuPDF for %s", source_path.name)
+        return ok
+    except Exception:  # noqa: BLE001
+        logger.warning("PyMuPDF PDF→DOCX failed for %s", source_path, exc_info=True)
+        return False
+    finally:
+        try:
+            pdf.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 async def convert_to_docx(source_path: Path, docx_path: Path) -> bool:
-    """Convert PDF / .doc / .docx to an editable .docx via Word COM."""
+    """Convert PDF / .doc / .docx to an editable .docx.
+
+    Prefer Microsoft Word when available (better layout). If Word is missing,
+    times out, or fails under the server, fall back to PyMuPDF text extraction
+    for PDFs so uploaded templates can still be filled.
+    """
     if source_path.suffix.lower() == ".docx":
         if source_path.resolve() == docx_path.resolve():
             return True
@@ -181,12 +247,12 @@ async def convert_to_docx(source_path: Path, docx_path: Path) -> bool:
             logger.warning("Failed to copy DOCX template %s -> %s", source_path, docx_path, exc_info=True)
             return False
 
-    # Run on the dedicated COM executor so we never share apartments oddly,
-    # but each call still spins a fresh Word (see _convert_to_docx_sync).
     loop = asyncio.get_running_loop()
     future = loop.run_in_executor(_executor, _convert_to_docx_sync, source_path, docx_path)
     try:
-        return await asyncio.wait_for(future, timeout=_TO_DOCX_TIMEOUT_SECONDS)
+        ok = await asyncio.wait_for(future, timeout=_TO_DOCX_TIMEOUT_SECONDS)
+        if ok:
+            return True
     except asyncio.TimeoutError:
         logger.error(
             "Word COM convert-to-docx timed out after %.0fs for %s",
@@ -194,7 +260,17 @@ async def convert_to_docx(source_path: Path, docx_path: Path) -> bool:
             source_path,
         )
         _recover_from_hang()
-        return False
+
+    if source_path.suffix.lower() == ".pdf":
+        logger.warning("Word PDF→DOCX unavailable for %s — trying PyMuPDF fallback", source_path.name)
+        try:
+            if docx_path.exists():
+                docx_path.unlink()
+        except Exception:  # noqa: BLE001
+            pass
+        return await loop.run_in_executor(None, _pdf_to_docx_pymupdf, source_path, docx_path)
+
+    return False
 
 
 def _convert_sync(docx_path: Path, pdf_path: Path) -> bool:

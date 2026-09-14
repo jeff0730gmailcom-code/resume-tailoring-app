@@ -25,7 +25,7 @@ from app.db.session import init_db
 from app.models.schemas import HealthResponse
 from app.services import docx_to_pdf, template_renderer
 from app.services.ai_tailor import _get_client, _is_reasoning_model, reset_openai_client
-from app.services.template_registry import seed_templates_from_disk, repair_uploaded_template_thumbnails
+from app.services.template_registry import seed_templates_from_disk, repair_uploaded_template_thumbnails, repair_uploaded_working_docx
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 _STATIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -85,6 +85,12 @@ async def lifespan(_app: FastAPI):
             _startup_logger.info("Repaired %s uploaded template thumbnail(s)", repaired)
     except Exception:  # noqa: BLE001
         _startup_logger.warning("Could not repair uploaded template thumbnails", exc_info=True)
+    try:
+        docx_repaired = repair_uploaded_working_docx()
+        if docx_repaired:
+            _startup_logger.info("Repaired %s uploaded template working.docx file(s)", docx_repaired)
+    except Exception:  # noqa: BLE001
+        _startup_logger.warning("Could not repair uploaded template working.docx files", exc_info=True)
     from app.db.models import User
     from app.db.session import session_scope
     from app.services.auth_service import is_founding_admin_name
