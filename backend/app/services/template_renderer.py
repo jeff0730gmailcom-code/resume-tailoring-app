@@ -228,18 +228,23 @@ async def render_pdf(slug: str, resume: TailoredResumeContent) -> bytes | None:
 async def render_html_to_pdf(html: str) -> bytes | None:
     """Render arbitrary HTML to A4 PDF bytes via Playwright.
 
-    Prefers the warm async browser; if that is unavailable (common on some
-    Windows event-loop setups), falls back to sync Playwright in a worker
-    thread so preview/download still work.
+    Prefers the warm async browser; if that is unavailable or throws
+    (common on Windows + uvicorn reload: NotImplementedError on subprocess),
+    falls back to sync Playwright in a worker thread.
     """
-    if await ensure_browser() and _browser is not None:
-        page = await _browser.new_page()
-        try:
-            await page.set_content(html, wait_until="load")
-            return await page.pdf(format="A4", print_background=True)
-        finally:
-            await page.close()
+    global _browser
+    try:
+        if await ensure_browser() and _browser is not None:
+            page = await _browser.new_page()
+            try:
+                await page.set_content(html, wait_until="load")
+                return await page.pdf(format="A4", print_background=True)
+            finally:
+                await page.close()
+    except Exception:  # noqa: BLE001 - fall through to sync path
+        logger.warning("Async Playwright PDF render failed — trying sync fallback", exc_info=True)
+        _browser = None
 
-    logger.warning("Async Playwright unavailable — trying sync PDF render in a worker thread")
+    logger.warning("Using sync Playwright PDF render in a worker thread")
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _sync_render_html_to_pdf, html)

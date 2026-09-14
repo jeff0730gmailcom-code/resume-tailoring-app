@@ -1,13 +1,12 @@
 """Render a filled DOCX (uploaded template) to PDF.
 
 Order:
-1. Fill the uploaded sample DOCX with tailored content (preserves their layout)
-2. Word DOCX→PDF when available
-3. mammoth HTML → Playwright PDF (no Word)
+1. Ensure working.docx (copy DOCX, or Word PDF→DOCX with retry)
+2. Fill the sample with tailored content (preserves layout)
+3. Export PDF via mammoth HTML → Playwright (same engine as Mateo/Marek)
+4. If Playwright fails, try Word DOCX→PDF
 
-Uploads are never remapped to a different coded Jinja layout (e.g. a file
-named Dejan Pavlovic.pdf must not silently render templates/resumes/dejan/).
-If the sample cannot be filled, return None so the API can ask for a DOCX.
+Uploads are never remapped to a different coded Jinja layout.
 """
 from __future__ import annotations
 
@@ -19,7 +18,7 @@ from app.models.schemas import TailoredResumeContent
 from app.services.docx_template_fill import fill_docx_template
 from app.services.docx_to_pdf import convert_docx_to_pdf, convert_to_docx
 from app.services.template_registry import resolve_working_docx
-from app.services.template_renderer import ensure_browser, render_html_to_pdf
+from app.services.template_renderer import render_html_to_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -76,19 +75,42 @@ async def _ensure_working_docx(template) -> Path | None:
         shutil.copy2(source, working)
         return working if working.exists() and working.stat().st_size > 0 else None
 
-    # PDF/DOC samples need Word. Retry once after a COM hang recovery — upload-time
-    # conversion often fails when Word is busy, then succeeds on generate.
     from app.services.docx_to_pdf import _recover_from_hang
 
     ok = await convert_to_docx(source, working)
     if (not ok or not working.exists()) and source.suffix.lower() == ".pdf":
-        logger.warning("Retrying PDF→DOCX for uploaded template %s after Word recover", getattr(template, "slug", "?"))
+        logger.warning(
+            "Retrying PDF→DOCX for uploaded template %s after Word recover",
+            getattr(template, "slug", "?"),
+        )
         _recover_from_hang()
         working.unlink(missing_ok=True)
         ok = await convert_to_docx(source, working)
 
     if ok and working.exists() and working.stat().st_size > 0:
         return working
+    return None
+
+
+async def _filled_docx_to_pdf(filled_docx: Path, filled_pdf: Path) -> bytes | None:
+    """Export filled DOCX to PDF. Prefer Playwright (Mateo-style); Word is backup."""
+    try:
+        html = _docx_to_print_html(filled_docx)
+        pdf_bytes = await render_html_to_pdf(html)
+        if pdf_bytes:
+            filled_pdf.write_bytes(pdf_bytes)
+            return pdf_bytes
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "mammoth/Playwright export failed for %s",
+            filled_docx,
+            exc_info=True,
+        )
+
+    ok = await convert_docx_to_pdf(filled_docx, filled_pdf)
+    if ok and filled_pdf.exists() and filled_pdf.stat().st_size > 0:
+        return filled_pdf.read_bytes()
+
     return None
 
 
@@ -99,49 +121,38 @@ async def render_uploaded_template_pdf(
     tailored: TailoredResumeContent,
     work_dir: Path,
 ) -> bytes | None:
-    """Fill the uploaded sample CV and produce PDF bytes.
-
-    Returns None when the upload cannot be filled (no working DOCX). Callers
-    must not substitute a different person's Jinja template.
-    """
+    """Fill the uploaded sample CV and produce PDF bytes."""
     work_dir.mkdir(parents=True, exist_ok=True)
     filled_docx = work_dir / "filled_template.docx"
     filled_pdf = work_dir / "filled_template.pdf"
+    slug = getattr(template, "slug", "?")
+    name = getattr(template, "name", "")
 
     working = await _ensure_working_docx(template)
     if working is None:
         logger.warning(
             "Uploaded template %s (%s) has no working DOCX — cannot fill the sample layout",
-            getattr(template, "slug", "?"),
-            getattr(template, "name", ""),
+            slug,
+            name,
         )
         return None
 
     try:
         fill_docx_template(working, filled_docx, tailored)
     except Exception:  # noqa: BLE001
-        logger.exception("Failed to fill uploaded template %s", getattr(template, "slug", "?"))
+        logger.exception("Failed to fill uploaded template %s", slug)
         return None
 
-    if not filled_docx.exists():
+    if not filled_docx.exists() or filled_docx.stat().st_size <= 0:
+        logger.warning("Fill produced no DOCX for uploaded template %s", slug)
         return None
 
-    ok = await convert_docx_to_pdf(filled_docx, filled_pdf)
-    if ok and filled_pdf.exists() and filled_pdf.stat().st_size > 0:
-        return filled_pdf.read_bytes()
+    pdf_bytes = await _filled_docx_to_pdf(filled_docx, filled_pdf)
+    if pdf_bytes:
+        return pdf_bytes
 
-    try:
-        await ensure_browser()
-        html = _docx_to_print_html(filled_docx)
-        pdf_bytes = await render_html_to_pdf(html)
-        if pdf_bytes:
-            filled_pdf.write_bytes(pdf_bytes)
-            return pdf_bytes
-    except Exception:  # noqa: BLE001
-        logger.warning(
-            "mammoth/Playwright PDF path failed for uploaded template %s",
-            getattr(template, "slug", "?"),
-            exc_info=True,
-        )
-
+    logger.error(
+        "Uploaded template %s was filled but PDF export failed (Playwright and Word)",
+        slug,
+    )
     return None

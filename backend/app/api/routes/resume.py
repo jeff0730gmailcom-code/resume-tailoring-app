@@ -418,14 +418,20 @@ async def _render_and_cache_pdf(file_id: str, perf: PerfReport):
             )
     if pdf_bytes is None:
         if getattr(template, "source_path", None) and not template_has_jinja_layout(template):
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=(
-                    f"Could not fill your uploaded template “{template.name}”. "
-                    "Re-upload it as a DOCX (or use PDF with Microsoft Word installed) "
-                    "so the app can keep that sample’s layout instead of substituting another template."
-                ),
-            )
+            source = Path(template.source_path)
+            working = source.parent / "working.docx" if source else None
+            has_working = bool(working and working.exists() and working.stat().st_size > 0)
+            if not has_working:
+                detail = (
+                    f"Could not prepare your uploaded template “{template.name}” for editing. "
+                    "Re-upload it as a DOCX file (recommended), or as a PDF with Microsoft Word installed."
+                )
+            else:
+                detail = (
+                    f"Your uploaded template “{template.name}” was filled, but PDF preview/export failed. "
+                    "Install Microsoft Edge or Chrome (for Playwright), or ensure Word can export DOCX to PDF, then try again."
+                )
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
