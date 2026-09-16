@@ -161,27 +161,38 @@ export default function TemplateGallery({
         <div
           className={
             dense
-              ? "flex flex-col gap-3"
+              ? "flex flex-col gap-2"
               : "grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,320px)]"
           }
         >
-          <div className={dense ? "grid grid-cols-2 gap-2 sm:grid-cols-3" : "grid grid-cols-2 gap-3 sm:grid-cols-3"}>
+          <div
+            className={
+              dense
+                ? "grid grid-cols-3 gap-1.5 sm:grid-cols-4"
+                : "grid grid-cols-2 gap-3 sm:grid-cols-3"
+            }
+          >
             {templates.map((template) => {
               const isSelected = template.slug === selectedSlug;
               return (
                 <div
                   key={template.slug}
-                  className={`flex flex-col overflow-hidden rounded-lg border-2 bg-white ${
-                    isSelected ? "border-indigo-500 ring-2 ring-indigo-200" : "border-slate-200"
+                  className={`flex flex-col overflow-hidden rounded-md border bg-white ${
+                    isSelected ? "border-indigo-500 ring-1 ring-indigo-200" : "border-slate-200"
                   }`}
                 >
                   <button
                     type="button"
                     disabled={disabled}
                     onClick={() => onSelect(template.slug)}
+                    onDoubleClick={() => setLightboxTemplate(template)}
                     className="flex flex-col text-left disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <div className={`w-full overflow-hidden bg-slate-100 ${dense ? "aspect-[3/3.6]" : "aspect-[3/4]"}`}>
+                    <div
+                      className={`w-full overflow-hidden bg-slate-100 ${
+                        dense ? "aspect-[3/2.6] max-h-28" : "aspect-[3/4]"
+                      }`}
+                    >
                       <img
                         src={template.thumbnailUrl}
                         alt={`${template.name} resume template preview`}
@@ -189,11 +200,17 @@ export default function TemplateGallery({
                         loading="lazy"
                       />
                     </div>
-                    <div className={dense ? "p-1.5" : "p-2"}>
-                      <div className="flex items-center gap-1.5">
-                        <p className={`font-medium text-slate-800 ${dense ? "text-xs" : "text-sm"}`}>{template.name}</p>
+                    <div className={dense ? "px-1.5 py-1" : "p-2"}>
+                      <div className="flex min-w-0 items-center gap-1">
+                        <p
+                          className={`truncate font-medium text-slate-800 ${
+                            dense ? "text-[11px] leading-tight" : "text-sm"
+                          }`}
+                        >
+                          {template.name}
+                        </p>
                         {template.isDefault ? (
-                          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                          <span className="shrink-0 rounded bg-emerald-50 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
                             Default
                           </span>
                         ) : null}
@@ -203,13 +220,19 @@ export default function TemplateGallery({
                       ) : null}
                     </div>
                   </button>
-                  <div className="flex flex-wrap gap-1 border-t border-slate-100 px-2 py-1.5">
+                  <div
+                    className={`flex flex-wrap gap-0.5 border-t border-slate-100 ${
+                      dense ? "px-1 py-0.5" : "px-2 py-1.5"
+                    }`}
+                  >
                     {!template.isDefault ? (
                       <button
                         type="button"
                         disabled={disabled || busySlug === template.slug}
                         onClick={() => void handleSetDefault(template.slug)}
-                        className="rounded px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                        className={`rounded font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 ${
+                          dense ? "px-1 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]"
+                        }`}
                       >
                         Set default
                       </button>
@@ -219,7 +242,9 @@ export default function TemplateGallery({
                         type="button"
                         disabled={disabled || busySlug === template.slug}
                         onClick={() => void handleDelete(template)}
-                        className="rounded px-2 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        className={`rounded font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 ${
+                          dense ? "px-1 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]"
+                        }`}
                       >
                         Delete
                       </button>
@@ -230,39 +255,37 @@ export default function TemplateGallery({
             })}
           </div>
 
-          <div className={`rounded-xl border border-slate-200 bg-slate-50 ${dense ? "p-2" : "p-3"}`}>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Preview</p>
-            {selectedTemplate ? (
-              <button
-                type="button"
-                onClick={() => setLightboxTemplate(selectedTemplate)}
-                className="group flex w-full flex-col items-stretch text-left"
-              >
-                <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                  <img
-                    src={selectedTemplate.thumbnailUrl}
-                    alt={`${selectedTemplate.name} large preview`}
-                    className={`mx-auto w-full object-contain object-top ${dense ? "max-h-52" : "max-h-[28rem]"}`}
-                  />
+          {!dense ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Preview</p>
+              {selectedTemplate ? (
+                <button
+                  type="button"
+                  onClick={() => setLightboxTemplate(selectedTemplate)}
+                  className="group flex w-full flex-col items-stretch text-left"
+                >
+                  <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <img
+                      src={selectedTemplate.thumbnailUrl}
+                      alt={`${selectedTemplate.name} large preview`}
+                      className="mx-auto max-h-[28rem] w-full object-contain object-top"
+                    />
+                  </div>
+                  <div className="mt-2">
+                    <p className="text-sm font-semibold text-slate-900">{selectedTemplate.name}</p>
+                    {selectedTemplate.description ? (
+                      <p className="mt-0.5 text-xs text-slate-500">{selectedTemplate.description}</p>
+                    ) : null}
+                    <p className="mt-1 text-[11px] text-indigo-600 group-hover:underline">Click to enlarge</p>
+                  </div>
+                </button>
+              ) : (
+                <div className="flex min-h-[16rem] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-4 text-center">
+                  <p className="text-sm text-slate-500">Select a template to preview it here.</p>
                 </div>
-                <div className="mt-2">
-                  <p className="text-sm font-semibold text-slate-900">{selectedTemplate.name}</p>
-                  {selectedTemplate.description && !dense ? (
-                    <p className="mt-0.5 text-xs text-slate-500">{selectedTemplate.description}</p>
-                  ) : null}
-                  <p className="mt-1 text-[11px] text-indigo-600 group-hover:underline">Click to enlarge</p>
-                </div>
-              </button>
-            ) : (
-              <div
-                className={`flex items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-4 text-center ${
-                  dense ? "min-h-[8rem]" : "min-h-[16rem]"
-                }`}
-              >
-                <p className="text-sm text-slate-500">Select a template to preview it here.</p>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          ) : null}
         </div>
       )}
       {selectionMissing && <p className="text-xs text-red-600">Please select a resume template.</p>}

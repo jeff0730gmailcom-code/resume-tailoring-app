@@ -219,7 +219,10 @@ function App() {
   const isAdmin = signedInUser.role === "admin";
   const viewingOtherActivity = page === "activity" && activityUserId != null && activityUserId !== signedInUser.id;
   const isWorkPage = page === "work";
-  const shellWidth = isWorkPage ? "max-w-none" : "max-w-7xl";
+  const isActivityPage = page === "activity";
+  // Create + Applications share the same shell padding/margins.
+  const useWorkShell = isWorkPage || isActivityPage;
+  const shellWidth = useWorkShell ? "max-w-none" : "max-w-7xl";
 
   function openMyActivity() {
     setActivityUserId(signedInUser.id);
@@ -272,10 +275,10 @@ function App() {
 
       <div
         className={`mx-auto flex min-h-0 w-full flex-1 flex-col ${shellWidth} ${
-          isWorkPage ? "overflow-hidden px-4 pt-3 lg:px-6 lg:pt-4" : "px-4 py-6"
+          useWorkShell ? "overflow-hidden px-4 pt-3 lg:px-6 lg:pt-4" : "px-4 py-6"
         }`}
       >
-        <div className={`flex flex-wrap gap-2 ${isWorkPage ? "mb-3 shrink-0" : "mb-6"}`}>
+        <div className={`flex flex-wrap gap-2 ${useWorkShell ? "mb-3 shrink-0" : "mb-6"}`}>
           <button type="button" onClick={() => setPage("work")} className={tabClass(page === "work")}>
             Create application
           </button>
@@ -294,7 +297,7 @@ function App() {
           <UsersPage currentUser={signedInUser} onViewActivity={openMemberActivity} />
         </main>
       ) : page === "activity" ? (
-        <main>
+        <main className="min-h-0 flex-1 overflow-y-auto pb-4">
           {viewingOtherActivity ? (
             <button
               type="button"
@@ -307,7 +310,7 @@ function App() {
           <ActivityHistory currentUser={signedInUser} memberId={viewingOtherActivity ? activityUserId : null} />
         </main>
       ) : (
-      <main className="flex min-h-0 flex-1 flex-col gap-4 pb-4 lg:grid lg:grid-cols-[minmax(360px,0.42fr)_minmax(0,0.58fr)] lg:gap-0 lg:overflow-hidden lg:pb-0">
+      <main className="flex min-h-0 flex-1 flex-col gap-4 pb-4 lg:grid lg:grid-cols-2 lg:gap-0 lg:overflow-hidden lg:pb-0">
         {/* Left: inputs */}
         <div className="flex min-h-0 flex-col lg:overflow-hidden lg:border-r lg:border-slate-200 lg:pr-5">
           <div className="flex min-h-0 flex-1 flex-col gap-4 lg:overflow-y-auto lg:pb-3">
