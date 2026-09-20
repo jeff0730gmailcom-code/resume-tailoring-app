@@ -140,6 +140,9 @@ export interface JobLinkHistoryItem {
   job_link: string;
   main_stack: string;
   created_at: string;
+  user_id?: number | null;
+  user_name?: string;
+  user_email?: string;
 }
 
 export interface AdminUserRow {

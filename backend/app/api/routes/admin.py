@@ -2,7 +2,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_admin_user
-from app.models.schemas import AdminUserActivity, AdminUserRow, AdminUserUpdate, ResumeTemplateInfo, UserPublic
+from app.models.schemas import (
+    AdminUserActivity,
+    AdminUserRow,
+    AdminUserUpdate,
+    JobLinkHistoryItem,
+    ResumeTemplateInfo,
+    UserPublic,
+)
 from app.services.admin_users import (
     activity_iso,
     delete_user,
@@ -12,6 +19,7 @@ from app.services.admin_users import (
     user_created_iso,
 )
 from app.services.auth_service import AuthError
+from app.services.resume_records import list_unique_job_links
 from app.services.template_registry import list_templates_for_users
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -103,3 +111,34 @@ async def admin_delete_user(user_id: int, admin: UserPublic = Depends(get_admin_
         delete_user(actor_id=admin.id, user_id=user_id)
     except AuthError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/job-links", response_model=list[JobLinkHistoryItem])
+async def admin_all_job_links(_admin: UserPublic = Depends(get_admin_user)) -> list[JobLinkHistoryItem]:
+    """All users' unique job links (duplicates collapsed globally), newest first."""
+    return [JobLinkHistoryItem(**item) for item in list_unique_job_links(include_user=True)]
+
+
+@router.get("/users/{user_id}/job-links", response_model=list[JobLinkHistoryItem])
+async def admin_user_job_links(
+    user_id: int,
+    _admin: UserPublic = Depends(get_admin_user),
+) -> list[JobLinkHistoryItem]:
+    """One member's unique job links for administrators."""
+    loaded = get_user_with_activity(user_id)
+    if loaded is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    user, _records = loaded
+    items = list_unique_job_links(user_id, include_user=True)
+    # Ensure user fields are filled even when include_user lookup is sparse.
+    return [
+        JobLinkHistoryItem(
+            **{
+                **item,
+                "user_id": user.id,
+                "user_name": item.get("user_name") or user.name,
+                "user_email": item.get("user_email") or user.email,
+            }
+        )
+        for item in items
+    ]

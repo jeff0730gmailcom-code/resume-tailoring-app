@@ -248,11 +248,36 @@ export async function fetchJobLinkHistory(): Promise<JobLinkHistoryItem[]> {
     throw new ApiError(await readErrorDetail(response), response.status);
   }
   const rows = (await response.json()) as Array<Record<string, unknown>>;
-  return rows.map((row) => ({
+  return rows.map(mapJobLinkRow);
+}
+
+export async function fetchAdminAllJobLinks(): Promise<JobLinkHistoryItem[]> {
+  const response = await apiFetch("/api/admin/job-links");
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  const rows = (await response.json()) as Array<Record<string, unknown>>;
+  return rows.map(mapJobLinkRow);
+}
+
+export async function fetchAdminUserJobLinks(userId: number): Promise<JobLinkHistoryItem[]> {
+  const response = await apiFetch(`/api/admin/users/${userId}/job-links`);
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  const rows = (await response.json()) as Array<Record<string, unknown>>;
+  return rows.map(mapJobLinkRow);
+}
+
+function mapJobLinkRow(row: Record<string, unknown>): JobLinkHistoryItem {
+  return {
     job_link: String(row.job_link ?? ""),
     main_stack: String(row.main_stack ?? ""),
     created_at: String(row.created_at ?? ""),
-  }));
+    user_id: row.user_id == null ? null : Number(row.user_id),
+    user_name: String(row.user_name ?? ""),
+    user_email: String(row.user_email ?? ""),
+  };
 }
 
 export async function uploadCv(file: File): Promise<UploadedCv> {

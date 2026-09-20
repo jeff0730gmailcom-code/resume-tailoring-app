@@ -7,6 +7,8 @@ import Modal from "./Modal";
 interface UsersPageProps {
   currentUser: UserPublic;
   onViewActivity: (userId: number) => void;
+  onViewJobLinks: (userId: number, userName: string) => void;
+  onViewAllJobLinks: () => void;
 }
 
 function statusLabel(user: AdminUserRow): { text: string; className: string } {
@@ -85,7 +87,12 @@ function MemberTemplatesPreview({ templates }: { templates: ResumeTemplateInfo[]
   );
 }
 
-export default function UsersPage({ currentUser, onViewActivity }: UsersPageProps) {
+export default function UsersPage({
+  currentUser,
+  onViewActivity,
+  onViewJobLinks,
+  onViewAllJobLinks,
+}: UsersPageProps) {
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -132,11 +139,20 @@ export default function UsersPage({ currentUser, onViewActivity }: UsersPageProp
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight text-slate-900">Members</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Allow new registrations, open a member&apos;s applications, or delete an account.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Members</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Allow new registrations, open a member&apos;s applications or job links, or delete an account.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onViewAllJobLinks}
+          className="rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600"
+        >
+          All job links
+        </button>
       </div>
 
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
@@ -172,6 +188,13 @@ export default function UsersPage({ currentUser, onViewActivity }: UsersPageProp
                 className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 View applications
+              </button>
+              <button
+                type="button"
+                onClick={() => onViewJobLinks(user.id, user.name)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                View job links
               </button>
               {canAllow && !isSelf ? (
                 <button

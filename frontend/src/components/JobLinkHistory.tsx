@@ -1,9 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, fetchJobLinkHistory } from "../services/api";
+import {
+  ApiError,
+  fetchAdminAllJobLinks,
+  fetchAdminUserJobLinks,
+  fetchJobLinkHistory,
+} from "../services/api";
 import type { JobLinkHistoryItem } from "../types";
 import { formatWhen } from "./ActivityHistory";
 
 const PAGE_SIZE = 20;
+
+const fieldClass =
+  "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20";
+
+export type JobLinkHistoryScope = "mine" | "all" | "member";
+
+interface JobLinkHistoryProps {
+  scope?: JobLinkHistoryScope;
+  /** Required when scope is "member". */
+  memberId?: number | null;
+  memberLabel?: string;
+  onBack?: () => void;
+}
 
 function escapeXml(value: string): string {
   return value
@@ -13,14 +31,23 @@ function escapeXml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function dayStamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 /** SpreadsheetML (.xls) that Excel opens without extra libraries. */
-function downloadJobLinksExcel(rows: JobLinkHistoryItem[]): void {
-  const header = ["Job link", "Stack", "Created at"];
-  const bodyRows = rows.map((row) => [
-    row.job_link,
-    row.main_stack || "",
-    formatWhen(row.created_at),
-  ]);
+function downloadJobLinksExcel(rows: JobLinkHistoryItem[], includeUser: boolean, filenamePrefix: string): void {
+  const header = includeUser
+    ? ["Job link", "Stack", "Created at", "User", "Email"]
+    : ["Job link", "Stack", "Created at"];
+  const bodyRows = rows.map((row) =>
+    includeUser
+      ? [row.job_link, row.main_stack || "", formatWhen(row.created_at), row.user_name || "", row.user_email || ""]
+      : [row.job_link, row.main_stack || "", formatWhen(row.created_at)]
+  );
   const xmlRows = [header, ...bodyRows]
     .map(
       (cells) =>
@@ -42,21 +69,37 @@ function downloadJobLinksExcel(rows: JobLinkHistoryItem[]): void {
   const anchor = document.createElement("a");
   const stamp = new Date().toISOString().slice(0, 10);
   anchor.href = url;
-  anchor.download = `job-link-history-${stamp}.xls`;
+  anchor.download = `${filenamePrefix}-${stamp}.xls`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
 
-export default function JobLinkHistory() {
+export default function JobLinkHistory({
+  scope = "mine",
+  memberId = null,
+  memberLabel,
+  onBack,
+}: JobLinkHistoryProps) {
   const [rows, setRows] = useState<JobLinkHistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
+
+  const showUserColumn = scope === "all";
 
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    void fetchJobLinkHistory()
+    const loader =
+      scope === "all"
+        ? fetchAdminAllJobLinks()
+        : scope === "member" && memberId != null
+          ? fetchAdminUserJobLinks(memberId)
+          : fetchJobLinkHistory();
+
+    void loader
       .then((items) => {
         if (cancelled) return;
         setRows(items);
@@ -73,43 +116,120 @@ export default function JobLinkHistory() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scope, memberId]);
 
-  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      const day = dayStamp(row.created_at);
+      if (createdFrom && (!day || day < createdFrom)) return false;
+      if (createdTo && (!day || day > createdTo)) return false;
+      return true;
+    });
+  }, [rows, createdFrom, createdTo]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [createdFrom, createdTo]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const pageRows = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
-    return rows.slice(start, start + PAGE_SIZE);
-  }, [rows, page]);
+    return filteredRows.slice(start, start + PAGE_SIZE);
+  }, [filteredRows, page]);
+
+  const title =
+    scope === "all"
+      ? "All job links"
+      : scope === "member"
+        ? `${memberLabel || "Member"} · job links`
+        : "Job link history";
+
+  const subtitle =
+    scope === "all"
+      ? "Unique job links across every member. Duplicates are shown once. Filter by date, then export."
+      : scope === "member"
+        ? "Unique job links for this member. Duplicates are shown once. Filter by date, then export."
+        : "Your unique job links from past applications. Duplicate links are shown once.";
+
+  const exportPrefix =
+    scope === "all" ? "all-job-links" : scope === "member" ? `job-links-user-${memberId ?? "member"}` : "job-link-history";
+
+  function clearDates() {
+    setCreatedFrom("");
+    setCreatedTo("");
+  }
 
   return (
     <div className="flex flex-col gap-5">
+      {onBack ? (
+        <button type="button" onClick={onBack} className="self-start text-sm font-medium text-brand hover:underline">
+          Back to members
+        </button>
+      ) : null}
+
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Job link history</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Your unique job links from past applications. Duplicate links are shown once.
-          </p>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900">{title}</h2>
+          <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
         </div>
         <button
           type="button"
-          disabled={rows.length === 0}
-          onClick={() => downloadJobLinksExcel(rows)}
+          disabled={filteredRows.length === 0}
+          onClick={() => downloadJobLinksExcel(filteredRows, showUserColumn, exportPrefix)}
           className="rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-40"
         >
           Export to Excel (.xls)
         </button>
       </div>
 
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+            From date
+            <input
+              type="date"
+              value={createdFrom}
+              onChange={(event) => setCreatedFrom(event.target.value)}
+              className={fieldClass}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+            To date
+            <input
+              type="date"
+              value={createdTo}
+              onChange={(event) => setCreatedTo(event.target.value)}
+              className={fieldClass}
+            />
+          </label>
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={clearDates}
+              disabled={!createdFrom && !createdTo}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+              title="Clear date filters"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {isLoading ? <p className="text-sm text-slate-500">Loading job links…</p> : null}
 
-      {!isLoading && rows.length === 0 && !error ? (
+      {!isLoading && filteredRows.length === 0 && !error ? (
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-16 text-center text-sm text-slate-500">
-          No job links yet. Generate an application with a job link to see it here.
+          {rows.length === 0
+            ? "No job links yet."
+            : "No job links match the selected date range."}
         </div>
       ) : null}
 
-      {rows.length > 0 ? (
+      {filteredRows.length > 0 ? (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-left text-sm">
@@ -118,11 +238,12 @@ export default function JobLinkHistory() {
                   <th className="px-4 py-3">Job link</th>
                   <th className="px-4 py-3">Stack</th>
                   <th className="px-4 py-3">Created at</th>
+                  {showUserColumn ? <th className="px-4 py-3">User</th> : null}
                 </tr>
               </thead>
               <tbody>
                 {pageRows.map((row) => (
-                  <tr key={row.job_link} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
+                  <tr key={`${row.job_link}-${row.user_id ?? ""}`} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
                     <td className="max-w-[28rem] px-4 py-3">
                       <a
                         href={row.job_link}
@@ -135,6 +256,12 @@ export default function JobLinkHistory() {
                     </td>
                     <td className="px-4 py-3 text-slate-700">{row.main_stack || "—"}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-500">{formatWhen(row.created_at)}</td>
+                    {showUserColumn ? (
+                      <td className="px-4 py-3 text-slate-700">
+                        <p className="font-medium">{row.user_name || "—"}</p>
+                        {row.user_email ? <p className="text-xs text-slate-500">{row.user_email}</p> : null}
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
@@ -142,7 +269,8 @@ export default function JobLinkHistory() {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-500">
             <p>
-              {rows.length} unique link{rows.length === 1 ? "" : "s"}
+              {filteredRows.length} unique link{filteredRows.length === 1 ? "" : "s"}
+              {rows.length !== filteredRows.length ? ` (of ${rows.length})` : ""}
               {pageCount > 1 ? ` · page ${page} of ${pageCount}` : ""}
             </p>
             {pageCount > 1 ? (

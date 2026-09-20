@@ -201,11 +201,14 @@ class ResumeMetadata(BaseModel):
 
 
 class JobLinkHistoryItem(BaseModel):
-    """One unique job link for the signed-in user (duplicates collapsed)."""
+    """One unique job link (duplicates collapsed). Optional user fields for admin views."""
 
     job_link: str
     main_stack: str = ""
     created_at: str = Field(description="ISO 8601 UTC timestamp of the newest application with this link")
+    user_id: int | None = None
+    user_name: str = ""
+    user_email: str = ""
 
 
 # --- Structured master-CV cache (see app/services/cv_structurer.py) --------

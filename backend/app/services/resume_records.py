@@ -106,29 +106,55 @@ def _normalize_job_link_key(raw: str) -> str:
     return key.lower()
 
 
-def list_unique_job_links(user_id: int) -> list[dict[str, str]]:
-    """Unique non-empty job links for one user, newest first.
+def list_unique_job_links(
+    user_id: int | None = None,
+    *,
+    include_user: bool = False,
+) -> list[dict]:
+    """Unique non-empty job links, newest first.
 
-    When the same link appears on multiple applications, keep the most recent
-    row's stack and created_at.
+    When ``user_id`` is set, only that user's records are considered.
+    When omitted, all users are included and links are deduped globally.
+    Duplicate links keep the newest row's stack / created_at (and user info
+    when ``include_user`` is True).
     """
-    records = list_resume_records(user_id=user_id)
-    seen: set[str] = set()
-    items: list[dict[str, str]] = []
-    for record in records:
-        link = (getattr(record, "job_link", "") or "").strip()
-        key = _normalize_job_link_key(link)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        items.append(
-            {
+    from sqlalchemy.orm import defer
+
+    from app.db.models import User
+
+    with session_scope() as session:
+        query = session.query(ResumeRecord).options(defer(ResumeRecord.cv_pdf))
+        if user_id is not None:
+            query = query.filter_by(user_id=user_id)
+        records = query.order_by(ResumeRecord.id.desc()).all()
+
+        users_by_id: dict[int, User] = {}
+        if include_user:
+            user_ids = {r.user_id for r in records if r.user_id is not None}
+            if user_ids:
+                for user in session.query(User).filter(User.id.in_(user_ids)).all():
+                    users_by_id[user.id] = user
+
+        seen: set[str] = set()
+        items: list[dict] = []
+        for record in records:
+            link = (getattr(record, "job_link", "") or "").strip()
+            key = _normalize_job_link_key(link)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            item: dict = {
                 "job_link": link,
                 "main_stack": record.main_stack or "",
                 "created_at": record.created_at.isoformat() if record.created_at else "",
             }
-        )
-    return items
+            if include_user:
+                owner = users_by_id.get(record.user_id) if record.user_id is not None else None
+                item["user_id"] = record.user_id
+                item["user_name"] = owner.name if owner is not None else ""
+                item["user_email"] = owner.email if owner is not None else ""
+            items.append(item)
+        return items
 
 
 def save_downloaded_cv(file_id: str, pdf_bytes: bytes) -> None:

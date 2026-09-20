@@ -44,6 +44,9 @@ function App() {
   const [user, setUser] = useState<UserPublic | null>(null);
   const [page, setPage] = useState<"work" | "users" | "activity" | "job-links">("work");
   const [activityUserId, setActivityUserId] = useState<number | null>(null);
+  const [jobLinksScope, setJobLinksScope] = useState<"mine" | "all" | "member">("mine");
+  const [jobLinksUserId, setJobLinksUserId] = useState<number | null>(null);
+  const [jobLinksUserLabel, setJobLinksUserLabel] = useState("");
   const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
 
   const [cv, setCv] = useState<UploadedCv | null>(null);
@@ -219,6 +222,7 @@ function App() {
   const signedInUser = user;
   const isAdmin = signedInUser.role === "admin";
   const viewingOtherActivity = page === "activity" && activityUserId != null && activityUserId !== signedInUser.id;
+  const viewingAdminJobLinks = page === "job-links" && jobLinksScope !== "mine";
   const isWorkPage = page === "work";
   const isActivityPage = page === "activity";
   const isJobLinksPage = page === "job-links";
@@ -236,6 +240,27 @@ function App() {
     setPage("activity");
   }
 
+  function openMyJobLinks() {
+    setJobLinksScope("mine");
+    setJobLinksUserId(null);
+    setJobLinksUserLabel("");
+    setPage("job-links");
+  }
+
+  function openAllJobLinks() {
+    setJobLinksScope("all");
+    setJobLinksUserId(null);
+    setJobLinksUserLabel("");
+    setPage("job-links");
+  }
+
+  function openMemberJobLinks(userId: number, userName: string) {
+    setJobLinksScope("member");
+    setJobLinksUserId(userId);
+    setJobLinksUserLabel(userName);
+    setPage("job-links");
+  }
+
   const tabClass = (active: boolean) =>
     `rounded-lg px-3.5 py-2 text-sm font-medium ${
       active ? "border border-slate-200 bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:bg-white/80 hover:text-slate-800"
@@ -251,7 +276,11 @@ function App() {
               {page === "activity"
                 ? "Applications"
                 : page === "job-links"
-                  ? "Job links"
+                  ? jobLinksScope === "all"
+                    ? "All job links"
+                    : jobLinksScope === "member"
+                      ? "Member job links"
+                      : "Job links"
                   : page === "users"
                     ? "Members"
                     : "Create application"}
@@ -293,11 +322,15 @@ function App() {
           <button type="button" onClick={openMyActivity} className={tabClass(page === "activity" && !viewingOtherActivity)}>
             Applications
           </button>
-          <button type="button" onClick={() => setPage("job-links")} className={tabClass(page === "job-links")}>
+          <button type="button" onClick={openMyJobLinks} className={tabClass(page === "job-links" && !viewingAdminJobLinks)}>
             Job links
           </button>
           {isAdmin ? (
-            <button type="button" onClick={() => setPage("users")} className={tabClass(page === "users" || viewingOtherActivity)}>
+            <button
+              type="button"
+              onClick={() => setPage("users")}
+              className={tabClass(page === "users" || viewingOtherActivity || viewingAdminJobLinks)}
+            >
               Users
             </button>
           ) : null}
@@ -305,7 +338,12 @@ function App() {
 
       {page === "users" && isAdmin ? (
         <main>
-          <UsersPage currentUser={signedInUser} onViewActivity={openMemberActivity} />
+          <UsersPage
+            currentUser={signedInUser}
+            onViewActivity={openMemberActivity}
+            onViewJobLinks={openMemberJobLinks}
+            onViewAllJobLinks={openAllJobLinks}
+          />
         </main>
       ) : page === "activity" ? (
         <main className="min-h-0 flex-1 overflow-y-auto pb-4">
@@ -322,7 +360,12 @@ function App() {
         </main>
       ) : page === "job-links" ? (
         <main className="min-h-0 flex-1 overflow-y-auto pb-4">
-          <JobLinkHistory />
+          <JobLinkHistory
+            scope={jobLinksScope}
+            memberId={jobLinksScope === "member" ? jobLinksUserId : null}
+            memberLabel={jobLinksUserLabel}
+            onBack={viewingAdminJobLinks ? () => setPage("users") : undefined}
+          />
         </main>
       ) : (
       <main className="flex min-h-0 flex-1 flex-col gap-4 pb-4 lg:grid lg:grid-cols-2 lg:gap-0 lg:overflow-hidden lg:pb-0">
