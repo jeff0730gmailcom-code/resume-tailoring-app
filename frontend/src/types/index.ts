@@ -136,6 +136,12 @@ export interface AdminUserActivity {
   cv_saved: boolean;
 }
 
+export interface JobLinkHistoryItem {
+  job_link: string;
+  main_stack: string;
+  created_at: string;
+}
+
 export interface AdminUserRow {
   id: number;
   email: string;

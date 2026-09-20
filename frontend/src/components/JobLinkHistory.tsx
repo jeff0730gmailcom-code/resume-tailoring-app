@@ -1,0 +1,173 @@
+import { useEffect, useMemo, useState } from "react";
+import { ApiError, fetchJobLinkHistory } from "../services/api";
+import type { JobLinkHistoryItem } from "../types";
+import { formatWhen } from "./ActivityHistory";
+
+const PAGE_SIZE = 20;
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** SpreadsheetML (.xls) that Excel opens without extra libraries. */
+function downloadJobLinksExcel(rows: JobLinkHistoryItem[]): void {
+  const header = ["Job link", "Stack", "Created at"];
+  const bodyRows = rows.map((row) => [
+    row.job_link,
+    row.main_stack || "",
+    formatWhen(row.created_at),
+  ]);
+  const xmlRows = [header, ...bodyRows]
+    .map(
+      (cells) =>
+        `<Row>${cells
+          .map((cell) => `<Cell><Data ss:Type="String">${escapeXml(cell)}</Data></Cell>`)
+          .join("")}</Row>`
+    )
+    .join("");
+  const xml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Worksheet ss:Name="Job links">
+  <Table>${xmlRows}</Table>
+ </Worksheet>
+</Workbook>`;
+  const blob = new Blob([xml], { type: "application/vnd.ms-excel" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0, 10);
+  anchor.href = url;
+  anchor.download = `job-link-history-${stamp}.xls`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+export default function JobLinkHistory() {
+  const [rows, setRows] = useState<JobLinkHistoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    void fetchJobLinkHistory()
+      .then((items) => {
+        if (cancelled) return;
+        setRows(items);
+        setError(null);
+        setPage(1);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof ApiError ? err.message : "Failed to load job link history.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pageRows = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return rows.slice(start, start + PAGE_SIZE);
+  }, [rows, page]);
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Job link history</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Your unique job links from past applications. Duplicate links are shown once.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={rows.length === 0}
+          onClick={() => downloadJobLinksExcel(rows)}
+          className="rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-40"
+        >
+          Export to Excel (.xls)
+        </button>
+      </div>
+
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {isLoading ? <p className="text-sm text-slate-500">Loading job links…</p> : null}
+
+      {!isLoading && rows.length === 0 && !error ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-6 py-16 text-center text-sm text-slate-500">
+          No job links yet. Generate an application with a job link to see it here.
+        </div>
+      ) : null}
+
+      {rows.length > 0 ? (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-4 py-3">Job link</th>
+                  <th className="px-4 py-3">Stack</th>
+                  <th className="px-4 py-3">Created at</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((row) => (
+                  <tr key={row.job_link} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
+                    <td className="max-w-[28rem] px-4 py-3">
+                      <a
+                        href={row.job_link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="break-all font-medium text-brand hover:underline"
+                      >
+                        {row.job_link}
+                      </a>
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">{row.main_stack || "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-500">{formatWhen(row.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-500">
+            <p>
+              {rows.length} unique link{rows.length === 1 ? "" : "s"}
+              {pageCount > 1 ? ` · page ${page} of ${pageCount}` : ""}
+            </p>
+            {pageCount > 1 ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="rounded-lg border border-slate-200 px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= pageCount}
+                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                  className="rounded-lg border border-slate-200 px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}

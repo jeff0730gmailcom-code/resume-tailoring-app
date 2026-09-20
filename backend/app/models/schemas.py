@@ -200,6 +200,14 @@ class ResumeMetadata(BaseModel):
     cv_saved: bool = False
 
 
+class JobLinkHistoryItem(BaseModel):
+    """One unique job link for the signed-in user (duplicates collapsed)."""
+
+    job_link: str
+    main_stack: str = ""
+    created_at: str = Field(description="ISO 8601 UTC timestamp of the newest application with this link")
+
+
 # --- Structured master-CV cache (see app/services/cv_structurer.py) --------
 #
 # Parsed once at upload time (no AI) so /tailor never has to re-parse or

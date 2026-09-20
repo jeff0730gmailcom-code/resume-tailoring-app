@@ -7,6 +7,7 @@ import CoverLetterChoice from "./components/CoverLetterChoice";
 import CoverLetterPreview from "./components/CoverLetterPreview";
 import CvUpload from "./components/CvUpload";
 import JobDescriptionInput from "./components/JobDescriptionInput";
+import JobLinkHistory from "./components/JobLinkHistory";
 import ResumePreview from "./components/ResumePreview";
 import TailoringDetailsInput from "./components/TailoringDetailsInput";
 import TemplateGallery from "./components/TemplateGallery";
@@ -41,7 +42,7 @@ function generateButtonLabel(includeCoverLetter: boolean, hasQuestions: boolean,
 function App() {
   const [authReady, setAuthReady] = useState(false);
   const [user, setUser] = useState<UserPublic | null>(null);
-  const [page, setPage] = useState<"work" | "users" | "activity">("work");
+  const [page, setPage] = useState<"work" | "users" | "activity" | "job-links">("work");
   const [activityUserId, setActivityUserId] = useState<number | null>(null);
   const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
 
@@ -220,8 +221,9 @@ function App() {
   const viewingOtherActivity = page === "activity" && activityUserId != null && activityUserId !== signedInUser.id;
   const isWorkPage = page === "work";
   const isActivityPage = page === "activity";
-  // Create + Applications share the same shell padding/margins.
-  const useWorkShell = isWorkPage || isActivityPage;
+  const isJobLinksPage = page === "job-links";
+  // Create + Applications + Job links share the same shell padding/margins.
+  const useWorkShell = isWorkPage || isActivityPage || isJobLinksPage;
   const shellWidth = useWorkShell ? "max-w-none" : "max-w-7xl";
 
   function openMyActivity() {
@@ -246,7 +248,13 @@ function App() {
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-brand">Resume Tailor</p>
             <h1 className="text-lg font-semibold text-slate-900">
-              {page === "activity" ? "Applications" : page === "users" ? "Members" : "Create application"}
+              {page === "activity"
+                ? "Applications"
+                : page === "job-links"
+                  ? "Job links"
+                  : page === "users"
+                    ? "Members"
+                    : "Create application"}
             </h1>
           </div>
           <div className="flex items-center gap-3">
@@ -285,6 +293,9 @@ function App() {
           <button type="button" onClick={openMyActivity} className={tabClass(page === "activity" && !viewingOtherActivity)}>
             Applications
           </button>
+          <button type="button" onClick={() => setPage("job-links")} className={tabClass(page === "job-links")}>
+            Job links
+          </button>
           {isAdmin ? (
             <button type="button" onClick={() => setPage("users")} className={tabClass(page === "users" || viewingOtherActivity)}>
               Users
@@ -308,6 +319,10 @@ function App() {
             </button>
           ) : null}
           <ActivityHistory currentUser={signedInUser} memberId={viewingOtherActivity ? activityUserId : null} />
+        </main>
+      ) : page === "job-links" ? (
+        <main className="min-h-0 flex-1 overflow-y-auto pb-4">
+          <JobLinkHistory />
         </main>
       ) : (
       <main className="flex min-h-0 flex-1 flex-col gap-4 pb-4 lg:grid lg:grid-cols-2 lg:gap-0 lg:overflow-hidden lg:pb-0">

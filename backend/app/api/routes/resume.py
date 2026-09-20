@@ -37,7 +37,15 @@ from fastapi.responses import FileResponse, Response
 
 from app.api.deps import get_approved_user
 from app.core.config import settings
-from app.models.schemas import ResumeMetadata, ResumeTemplateInfo, TailorRequest, TailorResponse, UploadResponse, UserPublic
+from app.models.schemas import (
+    JobLinkHistoryItem,
+    ResumeMetadata,
+    ResumeTemplateInfo,
+    TailorRequest,
+    TailorResponse,
+    UploadResponse,
+    UserPublic,
+)
 from app.services.ai_application_answers import generate_application_answers, normalize_application_questions
 from app.services.ai_cover_letter import generate_cover_letter
 from app.services.ai_tailor import AiTailoringError, tailor_resume
@@ -52,6 +60,7 @@ from app.services.resume_records import (
     get_latest_resume_record,
     get_resume_record,
     list_resume_records,
+    list_unique_job_links,
     save_downloaded_cv,
     save_resume_record,
 )
@@ -384,6 +393,12 @@ async def resume_history(user: UserPublic = Depends(get_approved_user)) -> list[
         )
         for record in records
     ]
+
+
+@router.get("/job-links", response_model=list[JobLinkHistoryItem])
+async def job_link_history(user: UserPublic = Depends(get_approved_user)) -> list[JobLinkHistoryItem]:
+    """Unique job links from the signed-in user's applications (newest first)."""
+    return [JobLinkHistoryItem(**item) for item in list_unique_job_links(user.id)]
 
 
 async def _render_and_cache_pdf(file_id: str, perf: PerfReport):

@@ -3,6 +3,7 @@
  */
 import type {
   AdminUserActivity,
+  JobLinkHistoryItem,
   AdminUserRow,
   ApplicationAnswerItem,
   AuthResponse,
@@ -238,6 +239,19 @@ export async function fetchMyActivity(): Promise<AdminUserActivity[]> {
     generated_filename: String(row.generated_filename ?? ""),
     created_at: String(row.created_at ?? ""),
     cv_saved: Boolean(row.cv_saved),
+  }));
+}
+
+export async function fetchJobLinkHistory(): Promise<JobLinkHistoryItem[]> {
+  const response = await apiFetch("/api/resume/job-links");
+  if (!response.ok) {
+    throw new ApiError(await readErrorDetail(response), response.status);
+  }
+  const rows = (await response.json()) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    job_link: String(row.job_link ?? ""),
+    main_stack: String(row.main_stack ?? ""),
+    created_at: String(row.created_at ?? ""),
   }));
 }
 

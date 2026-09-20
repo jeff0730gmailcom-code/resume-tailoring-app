@@ -94,6 +94,43 @@ def list_resume_records(limit: int | None = None, user_id: int | None = None) ->
         return rows
 
 
+def _normalize_job_link_key(raw: str) -> str:
+    """Collapse trivial URL variants so duplicate postings map to one row."""
+    link = (raw or "").strip()
+    if not link:
+        return ""
+    key = link.rstrip("/")
+    if "://" in key:
+        scheme, rest = key.split("://", 1)
+        key = f"{scheme.lower()}://{rest}"
+    return key.lower()
+
+
+def list_unique_job_links(user_id: int) -> list[dict[str, str]]:
+    """Unique non-empty job links for one user, newest first.
+
+    When the same link appears on multiple applications, keep the most recent
+    row's stack and created_at.
+    """
+    records = list_resume_records(user_id=user_id)
+    seen: set[str] = set()
+    items: list[dict[str, str]] = []
+    for record in records:
+        link = (getattr(record, "job_link", "") or "").strip()
+        key = _normalize_job_link_key(link)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        items.append(
+            {
+                "job_link": link,
+                "main_stack": record.main_stack or "",
+                "created_at": record.created_at.isoformat() if record.created_at else "",
+            }
+        )
+    return items
+
+
 def save_downloaded_cv(file_id: str, pdf_bytes: bytes) -> None:
     """Persist the rendered PDF on the latest ResumeRecord for this file_id."""
     with session_scope() as session:
