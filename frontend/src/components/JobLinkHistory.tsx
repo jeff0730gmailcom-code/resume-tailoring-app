@@ -86,8 +86,18 @@ export default function JobLinkHistory({
   const [page, setPage] = useState(1);
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
+  const [stackFilter, setStackFilter] = useState("");
 
   const showUserColumn = scope === "all";
+
+  const stackOptions = useMemo(() => {
+    const unique = new Set<string>();
+    for (const row of rows) {
+      const stack = (row.main_stack || "").trim();
+      if (stack) unique.add(stack);
+    }
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,17 +129,22 @@ export default function JobLinkHistory({
   }, [scope, memberId]);
 
   const filteredRows = useMemo(() => {
+    const stackNeedle = stackFilter.trim().toLowerCase();
     return rows.filter((row) => {
       const day = dayStamp(row.created_at);
       if (createdFrom && (!day || day < createdFrom)) return false;
       if (createdTo && (!day || day > createdTo)) return false;
+      if (stackNeedle) {
+        const stack = (row.main_stack || "").toLowerCase();
+        if (!stack.includes(stackNeedle)) return false;
+      }
       return true;
     });
-  }, [rows, createdFrom, createdTo]);
+  }, [rows, createdFrom, createdTo, stackFilter]);
 
   useEffect(() => {
     setPage(1);
-  }, [createdFrom, createdTo]);
+  }, [createdFrom, createdTo, stackFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -146,17 +161,20 @@ export default function JobLinkHistory({
 
   const subtitle =
     scope === "all"
-      ? "Unique job links across every member. Duplicates are shown once. Filter by date, then export."
+      ? "Unique job links across every member. Duplicates are shown once. Filter by stack or date, then export."
       : scope === "member"
-        ? "Unique job links for this member. Duplicates are shown once. Filter by date, then export."
-        : "Your unique job links from past applications. Duplicate links are shown once.";
+        ? "Unique job links for this member. Duplicates are shown once. Filter by stack or date, then export."
+        : "Your unique job links from past applications. Filter by stack or date, then export.";
 
   const exportPrefix =
     scope === "all" ? "all-job-links" : scope === "member" ? `job-links-user-${memberId ?? "member"}` : "job-link-history";
 
-  function clearDates() {
+  const hasFilters = Boolean(createdFrom || createdTo || stackFilter.trim());
+
+  function clearFilters() {
     setCreatedFrom("");
     setCreatedTo("");
+    setStackFilter("");
   }
 
   return (
@@ -183,7 +201,23 @@ export default function JobLinkHistory({
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+            Stack
+            <input
+              type="text"
+              list="job-link-stack-options"
+              value={stackFilter}
+              onChange={(event) => setStackFilter(event.target.value)}
+              placeholder="Filter by stack…"
+              className={fieldClass}
+            />
+            <datalist id="job-link-stack-options">
+              {stackOptions.map((stack) => (
+                <option key={stack} value={stack} />
+              ))}
+            </datalist>
+          </label>
           <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
             From date
             <input
@@ -205,10 +239,10 @@ export default function JobLinkHistory({
           <div className="flex items-end">
             <button
               type="button"
-              onClick={clearDates}
-              disabled={!createdFrom && !createdTo}
+              onClick={clearFilters}
+              disabled={!hasFilters}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
-              title="Clear date filters"
+              title="Clear filters"
             >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
@@ -225,7 +259,7 @@ export default function JobLinkHistory({
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-16 text-center text-sm text-slate-500">
           {rows.length === 0
             ? "No job links yet."
-            : "No job links match the selected date range."}
+            : "No job links match the selected stack or date filters."}
         </div>
       ) : null}
 
