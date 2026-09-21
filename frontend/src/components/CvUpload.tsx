@@ -3,9 +3,14 @@ import type { DragEvent } from "react";
 
 interface CvUploadProps {
   onFileSelected: (file: File) => void;
+  /** When set, user can pick several files at once; each is passed to onFileSelected. */
+  onFilesSelected?: (files: File[]) => void;
+  multiple?: boolean;
   fileName?: string | null;
   isUploading?: boolean;
   error?: string | null;
+  /** Override the empty-state hint (e.g. “Add another master CV”). */
+  emptyLabel?: string;
 }
 
 const ACCEPTED_EXTENSIONS = [".pdf", ".doc", ".docx"];
@@ -15,15 +20,27 @@ function hasAcceptedExtension(fileName: string): boolean {
   return ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
-export default function CvUpload({ onFileSelected, fileName, isUploading, error }: CvUploadProps) {
+export default function CvUpload({
+  onFileSelected,
+  onFilesSelected,
+  multiple = false,
+  fileName,
+  isUploading,
+  error,
+  emptyLabel,
+}: CvUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   function handleFiles(files: FileList | null) {
-    const file = files?.[0];
-    if (!file) return;
-    if (!hasAcceptedExtension(file.name)) return;
-    onFileSelected(file);
+    if (!files?.length) return;
+    const accepted = Array.from(files).filter((file) => hasAcceptedExtension(file.name));
+    if (!accepted.length) return;
+    if (multiple || onFilesSelected) {
+      (onFilesSelected ?? ((list) => list.forEach(onFileSelected)))(accepted);
+    } else {
+      onFileSelected(accepted[0]);
+    }
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
@@ -51,19 +68,27 @@ export default function CvUpload({ onFileSelected, fileName, isUploading, error 
           type="file"
           accept={ACCEPTED_EXTENSIONS.join(",")}
           className="hidden"
-          onChange={(event) => handleFiles(event.target.files)}
+          multiple={multiple}
+          onChange={(event) => {
+            handleFiles(event.target.files);
+            event.target.value = "";
+          }}
         />
         {isUploading ? (
           <p className="font-medium text-slate-600">Uploading &amp; extracting your CV&hellip;</p>
-        ) : fileName ? (
+        ) : fileName && !multiple ? (
           <>
             <p className="font-medium text-slate-800">{fileName}</p>
             <p className="text-sm text-slate-500">Click or drop a file to replace it</p>
           </>
         ) : (
           <>
-            <p className="font-medium text-slate-700">Click to upload or drag and drop</p>
-            <p className="text-sm text-slate-500">PDF, DOC, or DOCX, up to 10MB</p>
+            <p className="font-medium text-slate-700">
+              {emptyLabel ?? (multiple ? "Click to upload or drag and drop" : "Click to upload or drag and drop")}
+            </p>
+            <p className="text-sm text-slate-500">
+              {multiple ? "PDF, DOC, or DOCX — one or more files, up to 10MB each" : "PDF, DOC, or DOCX, up to 10MB"}
+            </p>
           </>
         )}
       </div>

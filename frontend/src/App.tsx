@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import ActivityHistory from "./components/ActivityHistory";
 import ApplicationAnswersPreview from "./components/ApplicationAnswersPreview";
 import ApplicationQuestionsInput from "./components/ApplicationQuestionsInput";
@@ -23,15 +23,31 @@ import {
   tailorResume,
   uploadCv,
 } from "./services/api";
-import type { ApplicationAnswerItem, CoverLetterContent, TailoredResumeContent, UploadedCv, UserPublic } from "./types";
+import type { CvVariant, UserPublic } from "./types";
 import { userCanUseApp } from "./types";
 
-function generateButtonLabel(includeCoverLetter: boolean, hasQuestions: boolean, isGenerating: boolean): string {
+function newLocalId(): string {
+  return `cv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function generateButtonLabel(
+  includeCoverLetter: boolean,
+  hasQuestions: boolean,
+  isGenerating: boolean,
+  variantCount: number
+): string {
   if (isGenerating) {
+    if (variantCount > 1) return `Generating ${variantCount} resumes…`;
     if (includeCoverLetter && hasQuestions) return "Generating resume, cover letter & answers...";
     if (includeCoverLetter) return "Generating resume & cover letter...";
     if (hasQuestions) return "Generating resume & answers...";
     return "Generating...";
+  }
+  if (variantCount > 1) {
+    if (includeCoverLetter && hasQuestions) return `Generate ${variantCount} resumes, letters & answers`;
+    if (includeCoverLetter) return `Generate ${variantCount} resumes & cover letters`;
+    if (hasQuestions) return `Generate ${variantCount} resumes & answers`;
+    return `Generate ${variantCount} tailored resumes`;
   }
   if (includeCoverLetter && hasQuestions) return "Generate Resume, Cover Letter & Answers";
   if (includeCoverLetter) return "Generate Resume & Cover Letter";
@@ -49,7 +65,8 @@ function App() {
   const [jobLinksUserLabel, setJobLinksUserLabel] = useState("");
   const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
 
-  const [cv, setCv] = useState<UploadedCv | null>(null);
+  const [variants, setVariants] = useState<CvVariant[]>([]);
+  const [activeVariantId, setActiveVariantId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -57,38 +74,30 @@ function App() {
   const [mainStack, setMainStack] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [jobLink, setJobLink] = useState("");
-  const [selectedTemplateSlug, setSelectedTemplateSlug] = useState<string | null>(null);
   const [includeCoverLetter, setIncludeCoverLetter] = useState(false);
   const [applicationQuestions, setApplicationQuestions] = useState<string[]>([]);
   const [attemptedGenerate, setAttemptedGenerate] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
 
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
-  const [resume, setResume] = useState<TailoredResumeContent | null>(null);
-  const [coverLetter, setCoverLetter] = useState<CoverLetterContent | null>(null);
-  const [applicationAnswers, setApplicationAnswers] = useState<ApplicationAnswerItem[]>([]);
-  const [lastGenerateIncludedLetter, setLastGenerateIncludedLetter] = useState(false);
-  const [lastGenerateHadQuestions, setLastGenerateHadQuestions] = useState(false);
-  const [generatedFilename, setGeneratedFilename] = useState<string | null>(null);
+  const activeVariant = useMemo(
+    () => variants.find((v) => v.localId === activeVariantId) ?? variants[0] ?? null,
+    [variants, activeVariantId]
+  );
+
+  const anyGenerating = variants.some((v) => v.isGenerating);
 
   const resetWorkspace = useCallback(() => {
-    setCv(null);
+    setVariants([]);
+    setActiveVariantId(null);
     setUploadError(null);
     setJobDescription("");
     setMainStack("");
     setCompanyName("");
     setJobLink("");
-    setSelectedTemplateSlug(null);
     setIncludeCoverLetter(false);
     setApplicationQuestions([]);
     setAttemptedGenerate(false);
-    setGenerateError(null);
-    setResume(null);
-    setCoverLetter(null);
-    setApplicationAnswers([]);
-    setLastGenerateIncludedLetter(false);
-    setLastGenerateHadQuestions(false);
-    setGeneratedFilename(null);
+    setBatchError(null);
   }, []);
 
   useEffect(() => {
@@ -134,72 +143,135 @@ function App() {
     resetWorkspace();
   }
 
-  async function handleFileSelected(file: File) {
+  function updateVariant(localId: string, patch: Partial<CvVariant>) {
+    setVariants((current) => current.map((v) => (v.localId === localId ? { ...v, ...patch } : v)));
+  }
+
+  async function handleFilesSelected(files: File[]) {
+    if (!files.length) return;
     setIsUploading(true);
     setUploadError(null);
-    setResume(null);
-    setCoverLetter(null);
-    setApplicationAnswers([]);
-    setLastGenerateIncludedLetter(false);
-    setLastGenerateHadQuestions(false);
-    setGeneratedFilename(null);
+    setBatchError(null);
+    const inheritedTemplate =
+      activeVariant?.templateSlug ?? variants.find((v) => v.templateSlug)?.templateSlug ?? null;
+    const created: CvVariant[] = [];
+    const errors: string[] = [];
+
+    for (const file of files) {
+      try {
+        const uploaded = await uploadCv(file);
+        created.push({
+          localId: newLocalId(),
+          cv: uploaded,
+          templateSlug: inheritedTemplate,
+          resume: null,
+          coverLetter: null,
+          applicationAnswers: [],
+          generatedFilename: null,
+          generateError: null,
+          isGenerating: false,
+          lastGenerateIncludedLetter: false,
+          lastGenerateHadQuestions: false,
+        });
+      } catch (err) {
+        errors.push(
+          `${file.name}: ${err instanceof ApiError ? err.message : "Upload failed."}`
+        );
+      }
+    }
+
+    if (created.length) {
+      setVariants((current) => [...current, ...created]);
+      setActiveVariantId(created[created.length - 1].localId);
+    }
+    if (errors.length) {
+      setUploadError(errors.join(" "));
+    }
+    setIsUploading(false);
+  }
+
+  function handleRemoveVariant(localId: string) {
+    setVariants((current) => {
+      const next = current.filter((v) => v.localId !== localId);
+      setActiveVariantId((active) => {
+        if (active !== localId) return active;
+        return next[0]?.localId ?? null;
+      });
+      return next;
+    });
+  }
+
+  async function tailorOneVariant(variant: CvVariant): Promise<void> {
+    if (!variant.templateSlug) {
+      updateVariant(variant.localId, {
+        generateError: "Select a resume template for this CV.",
+        isGenerating: false,
+      });
+      return;
+    }
+    updateVariant(variant.localId, {
+      isGenerating: true,
+      generateError: null,
+      lastGenerateIncludedLetter: includeCoverLetter,
+      lastGenerateHadQuestions: applicationQuestions.length > 0,
+    });
     try {
-      const uploaded = await uploadCv(file);
-      setCv(uploaded);
+      const result = await tailorResume(
+        variant.cv.fileId,
+        jobDescription,
+        mainStack.trim(),
+        companyName.trim(),
+        jobLink.trim(),
+        variant.templateSlug,
+        includeCoverLetter,
+        applicationQuestions
+      );
+      updateVariant(variant.localId, {
+        resume: result.resume,
+        coverLetter: result.coverLetter,
+        applicationAnswers: result.applicationAnswers,
+        generatedFilename: result.generatedFilename,
+        isGenerating: false,
+        generateError: null,
+      });
     } catch (err) {
-      setCv(null);
-      setUploadError(err instanceof ApiError ? err.message : "Failed to upload CV. Please try again.");
-    } finally {
-      setIsUploading(false);
+      updateVariant(variant.localId, {
+        isGenerating: false,
+        generateError:
+          err instanceof ApiError ? err.message : "Failed to generate a tailored resume.",
+      });
     }
   }
 
   async function handleGenerate() {
     setAttemptedGenerate(true);
-    if (!cv || !mainStack.trim() || !companyName.trim() || !jobLink.trim() || !selectedTemplateSlug) return;
-    setIsGenerating(true);
-    setGenerateError(null);
-    setCoverLetter(null);
-    setApplicationAnswers([]);
-    setLastGenerateIncludedLetter(includeCoverLetter);
-    setLastGenerateHadQuestions(applicationQuestions.length > 0);
-    try {
-      // ATS matching/scoring happens entirely on the backend (see
-      // app/services/ats_scorer.py) and is intentionally never surfaced in
-      // the UI - result.atsMatch is available in the API response for
-      // backend/internal use but is deliberately not read here.
-      const result = await tailorResume(
-        cv.fileId,
-        jobDescription,
-        mainStack.trim(),
-        companyName.trim(),
-        jobLink.trim(),
-        selectedTemplateSlug,
-        includeCoverLetter,
-        applicationQuestions
-      );
-      setResume(result.resume);
-      setCoverLetter(result.coverLetter);
-      setApplicationAnswers(result.applicationAnswers);
-      setGeneratedFilename(result.generatedFilename);
-    } catch (err) {
-      setGenerateError(
-        err instanceof ApiError ? err.message : "Failed to generate a tailored resume. Please try again."
-      );
-    } finally {
-      setIsGenerating(false);
+    setBatchError(null);
+    const jobOk =
+      jobDescription.trim().length > 0 &&
+      mainStack.trim().length > 0 &&
+      companyName.trim().length > 0 &&
+      (jobLink.trim().startsWith("http://") || jobLink.trim().startsWith("https://"));
+    if (!jobOk || variants.length === 0) return;
+
+    const ready = variants.filter((v) => v.templateSlug);
+    if (ready.length === 0) return;
+
+    setActiveVariantId(ready[0].localId);
+    // Sequential to avoid hammering the AI endpoint with many parallel calls.
+    for (const variant of ready) {
+      await tailorOneVariant(variant);
     }
   }
 
-  const canGenerate =
-    Boolean(cv) &&
+  const readyCount = variants.filter((v) => v.templateSlug).length;
+  const jobFieldsOk =
     jobDescription.trim().length > 0 &&
     mainStack.trim().length > 0 &&
     companyName.trim().length > 0 &&
-    (jobLink.trim().startsWith("http://") || jobLink.trim().startsWith("https://")) &&
-    Boolean(selectedTemplateSlug) &&
-    !isGenerating &&
-    !isUploading;
+    (jobLink.trim().startsWith("http://") || jobLink.trim().startsWith("https://"));
+
+  const canGenerate =
+    variants.length > 0 && readyCount > 0 && jobFieldsOk && !anyGenerating && !isUploading;
 
   const answersSectionNumber = includeCoverLetter ? 5 : 4;
 
@@ -226,7 +298,6 @@ function App() {
   const isWorkPage = page === "work";
   const isActivityPage = page === "activity";
   const isJobLinksPage = page === "job-links";
-  // Create + Applications + Job links share the same shell padding/margins.
   const useWorkShell = isWorkPage || isActivityPage || isJobLinksPage;
   const shellWidth = useWorkShell ? "max-w-none" : "max-w-7xl";
 
@@ -369,18 +440,74 @@ function App() {
         </main>
       ) : (
       <main className="flex min-h-0 flex-1 flex-col gap-4 pb-4 lg:grid lg:grid-cols-2 lg:gap-0 lg:overflow-hidden lg:pb-0">
-        {/* Left: inputs */}
         <div className="flex min-h-0 flex-col lg:overflow-hidden lg:border-r lg:border-slate-200 lg:pr-5">
           <div className="flex min-h-0 flex-1 flex-col gap-4 lg:overflow-y-auto lg:pb-3">
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">1. Upload master CV</h2>
-              <p className="mb-3 mt-0.5 text-xs text-slate-500">PDF or Word. Source of titles, employers, and facts.</p>
-              <CvUpload onFileSelected={handleFileSelected} fileName={cv?.fileName} isUploading={isUploading} error={uploadError} />
+              <h2 className="text-sm font-semibold text-slate-900">1. Upload master CVs</h2>
+              <p className="mb-3 mt-0.5 text-xs text-slate-500">
+                One or more PDF/Word CVs for the same job. Each CV can use its own template; preview shows the selected CV.
+              </p>
+              <CvUpload
+                multiple
+                onFileSelected={(file) => void handleFilesSelected([file])}
+                onFilesSelected={(files) => void handleFilesSelected(files)}
+                isUploading={isUploading}
+                error={uploadError}
+                emptyLabel={variants.length ? "Add another master CV" : "Click to upload or drag and drop"}
+              />
+              {variants.length > 0 ? (
+                <ul className="mt-3 flex flex-col gap-2">
+                  {variants.map((variant, index) => {
+                    const isActive = variant.localId === (activeVariant?.localId ?? "");
+                    return (
+                      <li key={variant.localId}>
+                        <div
+                          className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                            isActive ? "border-indigo-400 bg-indigo-50/60" : "border-slate-200 bg-white"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setActiveVariantId(variant.localId)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <p className="truncate text-sm font-medium text-slate-800">
+                              CV {index + 1}: {variant.cv.fileName}
+                            </p>
+                            <p className="truncate text-[11px] text-slate-500">
+                              {variant.templateSlug
+                                ? `Template: ${variant.templateSlug}`
+                                : "No template selected"}
+                              {variant.resume ? " · Ready" : ""}
+                              {variant.isGenerating ? " · Generating…" : ""}
+                              {variant.generateError ? " · Error" : ""}
+                            </p>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={anyGenerating || isUploading}
+                            onClick={() => handleRemoveVariant(variant.localId)}
+                            className="shrink-0 rounded px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        {variant.generateError ? (
+                          <p className="mt-1 px-1 text-xs text-red-600">{variant.generateError}</p>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+              {attemptedGenerate && variants.length === 0 ? (
+                <p className="mt-2 text-xs text-red-600">Upload at least one master CV.</p>
+              ) : null}
             </section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">2. Job &amp; template</h2>
-              <p className="mb-3 mt-0.5 text-xs text-slate-500">Posting, stack, company, link, and your template.</p>
+              <h2 className="text-sm font-semibold text-slate-900">2. Job details</h2>
+              <p className="mb-3 mt-0.5 text-xs text-slate-500">Shared across every master CV for this application.</p>
               <div className="flex flex-col gap-4">
                 <JobDescriptionInput value={jobDescription} onChange={setJobDescription} />
                 <TailoringDetailsInput
@@ -392,55 +519,94 @@ function App() {
                   onJobLinkChange={setJobLink}
                   showValidation={attemptedGenerate}
                 />
-                <div className="flex flex-col gap-2">
-                  <span className="font-medium text-slate-700">
-                    Your resume templates <span className="text-red-500">*</span>
-                  </span>
-                  <p className="text-xs text-slate-500">
-                    Pick one of your templates, or upload a sample CV (PDF/DOCX).
-                  </p>
-                  <TemplateGallery
-                    selectedSlug={selectedTemplateSlug}
-                    onSelect={setSelectedTemplateSlug}
-                    showValidation={attemptedGenerate}
-                    dense
-                  />
-                </div>
                 <CoverLetterChoice
                   value={includeCoverLetter}
                   onChange={setIncludeCoverLetter}
-                  disabled={isGenerating || isUploading}
+                  disabled={anyGenerating || isUploading}
                 />
                 <ApplicationQuestionsInput
                   questions={applicationQuestions}
                   onChange={setApplicationQuestions}
-                  disabled={isGenerating || isUploading}
+                  disabled={anyGenerating || isUploading}
                 />
               </div>
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">3. Template for selected CV</h2>
+              <p className="mb-3 mt-0.5 text-xs text-slate-500">
+                {activeVariant
+                  ? `Choose a template for “${activeVariant.cv.fileName}”. Switch CVs above to set each one.`
+                  : "Upload a master CV first, then pick its template."}
+              </p>
+              {activeVariant ? (
+                <TemplateGallery
+                  key={activeVariant.localId}
+                  selectedSlug={activeVariant.templateSlug}
+                  onSelect={(slug) => updateVariant(activeVariant.localId, { templateSlug: slug })}
+                  showValidation={attemptedGenerate}
+                  disabled={anyGenerating || isUploading}
+                  dense
+                />
+              ) : (
+                <p className="text-sm text-slate-500">No CV selected.</p>
+              )}
             </section>
           </div>
 
           <div className="sticky bottom-0 z-10 shrink-0 border-t border-slate-200 bg-slate-50/95 py-3 backdrop-blur lg:border-slate-200">
             <button
+              type="button"
               disabled={!canGenerate}
-              onClick={handleGenerate}
+              onClick={() => void handleGenerate()}
               className="w-full rounded-xl bg-brand px-4 py-3 font-semibold text-white shadow-sm transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {generateButtonLabel(includeCoverLetter, applicationQuestions.length > 0, isGenerating)}
+              {generateButtonLabel(
+                includeCoverLetter,
+                applicationQuestions.length > 0,
+                anyGenerating,
+                readyCount || 1
+              )}
             </button>
-            {generateError && <p className="mt-2 text-sm text-red-600">{generateError}</p>}
+            {batchError ? <p className="mt-2 text-sm text-red-600">{batchError}</p> : null}
+            {attemptedGenerate && variants.length > 0 && readyCount === 0 ? (
+              <p className="mt-2 text-sm text-red-600">Select a template for at least one CV.</p>
+            ) : null}
           </div>
         </div>
 
-        {/* Right: preview */}
         <div className="flex min-h-0 flex-col gap-4 lg:overflow-y-auto lg:pl-5 lg:pb-4">
           <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:min-h-[calc(100vh-11rem)]">
-            <h2 className="mb-3 shrink-0 text-sm font-semibold text-slate-900">3. Preview &amp; download</h2>
+            <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-slate-900">4. Preview &amp; download</h2>
+            </div>
+            {variants.length > 1 ? (
+              <div className="mb-3 flex shrink-0 flex-wrap gap-1.5">
+                {variants.map((variant, index) => {
+                  const isActive = variant.localId === (activeVariant?.localId ?? "");
+                  return (
+                    <button
+                      key={variant.localId}
+                      type="button"
+                      onClick={() => setActiveVariantId(variant.localId)}
+                      className={`rounded-lg px-2.5 py-1 text-xs font-medium ${
+                        isActive
+                          ? "bg-slate-900 text-white"
+                          : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      CV {index + 1}
+                      {variant.resume ? "" : " · pending"}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
             <div className="flex min-h-0 flex-1 flex-col">
               <ResumePreview
-                resume={resume}
-                fileId={cv?.fileId ?? null}
-                generatedFilename={generatedFilename}
+                resume={activeVariant?.resume ?? null}
+                fileId={activeVariant?.cv.fileId ?? null}
+                generatedFilename={activeVariant?.generatedFilename ?? null}
                 fillHeight
               />
             </div>
@@ -448,19 +614,19 @@ function App() {
 
           <CoverLetterPreview
             includeCoverLetter={includeCoverLetter}
-            coverLetter={coverLetter}
-            isGenerating={isGenerating}
-            hasResume={Boolean(resume)}
-            lastGenerateIncludedLetter={lastGenerateIncludedLetter}
+            coverLetter={activeVariant?.coverLetter ?? null}
+            isGenerating={activeVariant?.isGenerating ?? false}
+            hasResume={Boolean(activeVariant?.resume)}
+            lastGenerateIncludedLetter={activeVariant?.lastGenerateIncludedLetter ?? false}
           />
 
           <ApplicationAnswersPreview
             sectionNumber={answersSectionNumber}
             questions={applicationQuestions}
-            answers={applicationAnswers}
-            isGenerating={isGenerating}
-            hasResume={Boolean(resume)}
-            lastGenerateHadQuestions={lastGenerateHadQuestions}
+            answers={activeVariant?.applicationAnswers ?? []}
+            isGenerating={activeVariant?.isGenerating ?? false}
+            hasResume={Boolean(activeVariant?.resume)}
+            lastGenerateHadQuestions={activeVariant?.lastGenerateHadQuestions ?? false}
           />
         </div>
       </main>

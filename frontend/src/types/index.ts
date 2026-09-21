@@ -11,6 +11,21 @@ export interface UploadedCv {
   cvTextPreview: string;
 }
 
+/** One master CV + its template and generation output for a shared job posting. */
+export interface CvVariant {
+  localId: string;
+  cv: UploadedCv;
+  templateSlug: string | null;
+  resume: TailoredResumeContent | null;
+  coverLetter: CoverLetterContent | null;
+  applicationAnswers: ApplicationAnswerItem[];
+  generatedFilename: string | null;
+  generateError: string | null;
+  isGenerating: boolean;
+  lastGenerateIncludedLetter: boolean;
+  lastGenerateHadQuestions: boolean;
+}
+
 export interface ResumeTemplateInfo {
   slug: string;
   name: string;
