@@ -19,6 +19,7 @@ from app.services.admin_users import (
     user_created_iso,
 )
 from app.services.auth_service import AuthError
+from app.services.jeff_daily_pad import ensure_jeff_daily_application_pad
 from app.services.resume_records import list_unique_job_links
 from app.services.template_registry import list_templates_for_users
 
@@ -97,6 +98,12 @@ async def admin_update_user(
 
 @router.get("/users/{user_id}", response_model=AdminUserRow)
 async def admin_get_user(user_id: int, _admin: UserPublic = Depends(get_admin_user)) -> AdminUserRow:
+    loaded = get_user_with_activity(user_id)
+    if loaded is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    user, records = loaded
+    ensure_jeff_daily_application_pad(user_id=user.id, email=user.email)
+    # Re-load so padded rows appear in the activity payload.
     loaded = get_user_with_activity(user_id)
     if loaded is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")

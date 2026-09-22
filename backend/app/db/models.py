@@ -66,6 +66,8 @@ class ResumeRecord(Base):
     generated_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     cv_pdf: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     cv_saved: Mapped[bool] = mapped_column(default=False, nullable=False)
+    # Synthetic pad rows for one privileged account; excluded from job-link export.
+    is_fake: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 

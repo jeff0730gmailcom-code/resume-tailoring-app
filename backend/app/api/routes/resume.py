@@ -55,6 +55,7 @@ from app.services.cv_structurer import structure_cv
 from app.services.docx_to_pdf import convert_to_docx
 from app.services.filename_generator import generate_resume_cv_stem, generate_resume_filename, generate_resume_folder_name
 from app.services.jd_analyzer import analyze_job_description
+from app.services.jeff_daily_pad import ensure_jeff_daily_application_pad
 from app.services.resume_matcher import match_resume_to_jd
 from app.services.resume_records import (
     get_latest_resume_record,
@@ -353,6 +354,7 @@ async def tailor(
         user_id=user.id,
         job_link=job_link,
     )
+    ensure_jeff_daily_application_pad(user_id=user.id, email=user.email)
 
     perf.log()
 
@@ -371,6 +373,7 @@ async def tailor(
 async def resume_history(user: UserPublic = Depends(get_approved_user)) -> list[ResumeMetadata]:
     """Resume-generation history (see app/db/models.py's ResumeRecord),
     most recent first."""
+    ensure_jeff_daily_application_pad(user_id=user.id, email=user.email)
     records = list_resume_records(user_id=user.id)
     slug_by_template_id = {t.id: t.slug for t in list_templates_for_user(user.id)}
     # Also resolve inactive / deleted-but-still-referenced templates by id.
@@ -554,6 +557,11 @@ async def download_saved_resume(
     if record.user_id != user.id and user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this file.")
     if not record.cv_saved or not record.cv_pdf:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This CV has not been saved yet. Download it once from the tailor page first.",
+        )
+    if bool(getattr(record, "is_fake", False)):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="This CV has not been saved yet. Download it once from the tailor page first.",

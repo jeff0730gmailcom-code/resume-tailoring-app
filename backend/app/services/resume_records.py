@@ -15,7 +15,7 @@ from app.db.session import engine, session_scope
 
 
 def ensure_resume_records_schema() -> None:
-    """Add job_link / saved-CV columns on existing SQLite DBs."""
+    """Add job_link / saved-CV / is_fake columns on existing SQLite DBs."""
     inspector = inspect(engine)
     if "resume_records" not in inspector.get_table_names():
         return
@@ -27,6 +27,8 @@ def ensure_resume_records_schema() -> None:
         statements.append("ALTER TABLE resume_records ADD COLUMN cv_pdf BLOB")
     if "cv_saved" not in columns:
         statements.append("ALTER TABLE resume_records ADD COLUMN cv_saved BOOLEAN NOT NULL DEFAULT 0")
+    if "is_fake" not in columns:
+        statements.append("ALTER TABLE resume_records ADD COLUMN is_fake BOOLEAN NOT NULL DEFAULT 0")
     if not statements:
         return
     with engine.begin() as connection:
@@ -124,6 +126,8 @@ def list_unique_job_links(
 
     with session_scope() as session:
         query = session.query(ResumeRecord).options(defer(ResumeRecord.cv_pdf))
+        # Fake pad rows must never appear in job-link history or Excel export.
+        query = query.filter(ResumeRecord.is_fake.is_(False))
         if user_id is not None:
             query = query.filter_by(user_id=user_id)
         records = query.order_by(ResumeRecord.id.desc()).all()
