@@ -31,7 +31,14 @@ Every company entry must have exactly `EXPERIENCE_BULLET_COUNT` (8, see
 target job description's required/preferred skills and responsibilities —
 **not** limited to, or lightly reworded from, that specific job's own
 original CV bullets/duties. Vary bullets across jobs (no repeats); keep them
-plausible for each job's title/seniority/era. Each bullet: starts with a
+plausible for each job's title/seniority/era. **TECH ERA hard rule:** never
+put a technology in a job's bullets if that job ended before the technology
+publicly existed (e.g. MCP / Model Context Protocol launched 2024-11 — never
+on 2013–2023 roles). Put recent JD tools only on overlapping/later roles;
+older roles use era-correct wording (API integrations, registries, cloud
+infrastructure, lifecycle management, platform governance). Enforced in
+prompts and by `app/services/tech_timeline.py` +
+`resume_validator.validate_and_fix_resume`. Each bullet: starts with a
 strong action verb, includes the technical implementation, the impact, and a
 measurable number whenever possible. Preferred shape: `Action + Technology +
 Impact + Number`. Every selectable template

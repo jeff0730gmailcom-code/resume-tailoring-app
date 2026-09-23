@@ -29,6 +29,7 @@ gpt-4o-mini call stays under the <5s tailor target - see app/core/config.py.
 from app.core.constants import EXPERIENCE_BULLET_COUNT
 from app.models.schemas import JdAnalysis, MasterCvData, ResumeMatch
 from app.services.career_tenure import career_tenure_phrase
+from app.services.tech_timeline import prompt_era_rules_block
 
 RESUME_TAILOR_SYSTEM_PROMPT = """\
 Expert resume writer + ATS optimization specialist. Transform a candidate's \
@@ -80,6 +81,14 @@ Dedupe; no meta text.
 ATS ALIGNMENT: every skill you place in Skills should also be echoed at \
 least once in the summary or a bullet, ideally using the JD's own wording \
 - ATS scanners match literal text, not synonyms.
+
+TECH ERA (HARD RULE): never put a technology in a job's bullets if that \
+job ended before the technology publicly existed. Recent JD tools (e.g. \
+MCP / Model Context Protocol, introduced 2024-11) belong only on \
+overlapping or later roles — never on 2013–2023 jobs. For older roles use \
+era-correct wording (API integrations, registries, cloud infrastructure, \
+lifecycle management, platform governance). Skills/summary may name \
+current JD tools without backdating them onto old jobs.
 """
 
 
@@ -163,6 +172,14 @@ Transferable" list.
 TITLES: you may suggest a JD-aligned title, but the backend always uses \
 the master CV's own original job title in the final output - your \
 suggestion is never shown.
+
+TECH ERA (HARD RULE): never put a technology in a job's bullets if that \
+job ended before the technology publicly existed. Put recent tools only on \
+overlapping / later roles. Skills/summary may name current JD tools \
+without backdating them onto old jobs. MCP (Model Context Protocol) did \
+not exist before 2024-11 — never claim MCP work in earlier roles; use API \
+integrations, registries, cloud infrastructure, lifecycle management, or \
+platform governance instead.
 """
 
 # Appended to RESUME_TAILOR_DYNAMIC_SYSTEM_PROMPT only when
@@ -173,7 +190,10 @@ AGGRESSIVE_MODE_ADDENDUM = """
 
 AGGRESSIVE MODE - MAXIMIZE ATS MATCH: every required and preferred JD skill \
 must land in skills + summary + >=1 bullet, not just a passing mention. \
-Write bullets as if the candidate's whole career was built around this JD. \
+Write bullets as if the candidate's whole career was built around this JD \
+EXCEPT never violate TECH ERA — do not backdate tools onto jobs that ended \
+before those tools existed (put recent tools only on recent overlapping \
+roles; keep older jobs era-plausible). \
 Rewrite the summary to lead with the JD's own job-title terminology and top \
 2-3 required qualifications. Put ALL JD-relevant skills first in each \
 category. Weight the most recent job's bullets heaviest, but keep every \
@@ -188,10 +208,11 @@ job's bullets fully JD-driven and non-repetitive.
 AGGRESSIVE_MATCH_MODE_ADDENDUM = """
 
 AGGRESSIVE MATCH (target >95% ATS): write summary, skills, and bullets as \
-if the role were custom-built for this JD. Prefer JD terminology in \
-titles. Include every JD required AND preferred/nice-to-have skill in the \
-skills list, and weave the most important ones into the summary and \
-bullets as prose (no meta labels).
+if the role were custom-built for this JD, while still obeying TECH ERA \
+(no backdating tools onto jobs that ended before they existed). Prefer JD \
+terminology in titles. Include every JD required AND preferred/nice-to-have \
+skill in the skills list, and weave the most important ones into the \
+summary and recent overlapping roles' bullets as prose (no meta labels).
 """
 
 
@@ -247,7 +268,7 @@ def build_structured_user_message(
             f'Job #{i + 1}: title "{entry.title}" at "{entry.company}" ({entry.dates}) - write '
             f"exactly {EXPERIENCE_BULLET_COUNT} bullets, fully generated to best match the target "
             "JD below (not this job's own real duties); keep them plausible for this title/era "
-            "and distinct from every other job's bullets."
+            "and distinct from every other job's bullets. Obey TECH ERA for these dates."
         )
     jobs_block = "\n\n".join(jobs_desc)
 
@@ -291,13 +312,14 @@ def build_structured_user_message(
     return (
         f"{mode_note}"
         f"{tenure_line}"
+        f"{prompt_era_rules_block()}\n\n"
         f"CANDIDATE JOBS (titles/companies/dates are fixed context - write bullets only):\n{jobs_block}\n\n"
         f"{jd_block}\n"
         "Produce a tailored summary, a full JD-relevant skills list, and per-job bullets now. "
         "Skills should cover every required + preferred JD skill plus any other skill genuinely "
         "relevant to this role - not limited to the candidate's own CV. Summary: 3-4 professional "
         "prose sentences using the CAREER TENURE phrase above, no meta labels. Exact bullet counts "
-        "above, fully JD-driven per job, no repeats across jobs."
+        "above, fully JD-driven per job, no repeats across jobs. Obey TECH ERA for every job."
     )
 
 

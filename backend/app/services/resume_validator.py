@@ -53,6 +53,11 @@ from app.services.jd_analyzer import (
     _TECHNOLOGY_TERMS,
     _term_present,
 )
+from app.services.tech_timeline import (
+    forbidden_techs_for_job,
+    neutralize_anachronistic_text,
+    text_mentions_forbidden,
+)
 
 # The subset of _FRAMEWORKS that's specifically front-end (the rest of
 # _FRAMEWORKS - Django, Flask, FastAPI, Spring, etc - is backend). Used only
@@ -171,9 +176,44 @@ def validate_and_fix_resume(
         if len(entry.bullets) != expected:
             issues.append(f"job #{i + 1}: expected {expected} bullets, got {len(entry.bullets)}")
 
+    _strip_anachronistic_tech(tailored, issues)
     _apply_career_tenure(tailored, master_cv, issues)
 
     return ValidationReport(issues=issues)
+
+
+def _strip_anachronistic_tech(tailored: TailoredResumeContent, issues: list[str]) -> None:
+    """Remove tools from job bullets when the job ended before they existed."""
+    for i, entry in enumerate(tailored.experience):
+        forbidden = forbidden_techs_for_job(entry.dates or "")
+        if not forbidden:
+            continue
+        cleaned: list[str] = []
+        changed = False
+        for bullet in entry.bullets:
+            hits = text_mentions_forbidden(bullet, forbidden)
+            if not hits:
+                cleaned.append(bullet)
+                continue
+            rewritten = neutralize_anachronistic_text(bullet, hits)
+            # If neutralization emptied the bullet, keep a short era-safe stub
+            # so EXPERIENCE_BULLET_COUNT stays intact.
+            if len(rewritten) < 24:
+                rewritten = (
+                    f"Delivered cloud infrastructure and platform governance work "
+                    f"aligned with this role's scope and timeframe."
+                )
+            if rewritten != bullet:
+                changed = True
+            cleaned.append(rewritten)
+        entry.bullets = cleaned
+        if changed:
+            names = ", ".join(sorted({r.key for r in forbidden}))
+            issues.append(
+                f"job #{i + 1}: removed anachronistic tech ({names}) "
+                f"from bullets — tools that did not exist during this role"
+            )
+
 
 
 # Any digit at all counts as "has a quantifiable metric" - %, counts, time
