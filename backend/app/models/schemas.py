@@ -134,7 +134,13 @@ class ApplicationAnswersDraft(BaseModel):
 class TailorRequest(BaseModel):
     file_id: str
     job_description: str
-    main_stack: str = Field(description="Main technology stack for this application, e.g. 'Node.js' - used only for filename generation, never sent to the AI prompt")
+    main_stack: str = Field(
+        description=(
+            "Main technology stack for this application, e.g. '.NET' or 'Node.js'. "
+            "Used for filename generation AND sent to the AI/validator so every "
+            "experience entry stays on this stack (no cross-stack career jumps)."
+        )
+    )
     company_name: str = Field(description="Target company name for this application, e.g. 'Sequencer' - used only for filename generation, never sent to the AI prompt")
     job_link: str = Field(description="URL of the job posting; stored with the resume record, never sent to the AI prompt")
     template_slug: str = Field(description="Selected resume template slug (see GET /api/resume/templates) - determines the layout the tailored content is rendered into on download")

@@ -286,13 +286,22 @@ async def tailor(
 
     try:
         tailored, ats_match = await tailor_resume(
-            master_cv, jd_analysis, resume_match, payload.job_description, None, perf=perf, mode=mode
+            master_cv,
+            jd_analysis,
+            resume_match,
+            payload.job_description,
+            None,
+            perf=perf,
+            mode=mode,
+            main_stack=payload.main_stack.strip(),
         )
     except AiTailoringError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     with perf.stage("Validation"):
-        validation = validate_and_fix_resume(tailored, master_cv, None)
+        validation = validate_and_fix_resume(
+            tailored, master_cv, None, main_stack=payload.main_stack.strip()
+        )
 
         # Deterministic ATS / preferred-skill coverage (no second OpenAI call):
         # Skills + Summary pick up every CV-supported matched/transferable

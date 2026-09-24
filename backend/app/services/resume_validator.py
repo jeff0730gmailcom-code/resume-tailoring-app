@@ -53,6 +53,14 @@ from app.services.jd_analyzer import (
     _TECHNOLOGY_TERMS,
     _term_present,
 )
+from app.services.stack_alignment import (
+    MAX_COMPETING_STACK_BULLETS_PER_JOB,
+    competing_bullet_indexes,
+    competing_families_in_text,
+    resolve_stack_family,
+    rewrite_toward_stack,
+    sanitize_title_for_stack,
+)
 from app.services.tech_timeline import (
     forbidden_techs_for_job,
     neutralize_anachronistic_text,
@@ -97,6 +105,7 @@ def validate_and_fix_resume(
     tailored: TailoredResumeContent,
     master_cv: MasterCvData,
     bullets_per_job: list[int] | None,
+    main_stack: str = "",
 ) -> ValidationReport:
     """Mutates `tailored` in place to auto-correct any drift found, and
     returns a report of what was checked/fixed.
@@ -129,6 +138,8 @@ def validate_and_fix_resume(
             if original.company and not generated.company.strip():
                 issues.append(f"job #{i + 1}: missing company - restored from master CV")
                 generated.company = original.company
+
+    _align_experience_to_main_stack(tailored, main_stack, issues)
 
     # Languages: a FIXED, backend-only section (see app/core/constants.py) -
     # never read from the master CV, never AI-generated, in EITHER the
@@ -180,6 +191,54 @@ def validate_and_fix_resume(
     _apply_career_tenure(tailored, master_cv, issues)
 
     return ValidationReport(issues=issues)
+
+
+def _align_experience_to_main_stack(
+    tailored: TailoredResumeContent,
+    main_stack: str,
+    issues: list[str],
+) -> None:
+    """Keep MOST bullets on the main stack; allow a few competing-stack ones.
+
+    Secondary JD skills that are not a rival primary family (React, Docker,
+    Kafka, etc.) are never rewritten. Only excess bullets that push a
+    different primary language/framework career are neutralized.
+    """
+    primary = resolve_stack_family(main_stack)
+    if primary is None:
+        return
+
+    for i, entry in enumerate(tailored.experience):
+        original_title = entry.title or ""
+        cleaned_title = sanitize_title_for_stack(original_title, primary)
+        if cleaned_title != original_title:
+            issues.append(
+                f"job #{i + 1}: removed competing-stack tokens from title "
+                f"({original_title!r} → {cleaned_title!r}) for main stack {main_stack!r}"
+            )
+            entry.title = cleaned_title
+
+        competing_idxs = competing_bullet_indexes(entry.bullets, primary)
+        # Keep the first N competing bullets; rewrite the rest onto main stack.
+        excess = competing_idxs[MAX_COMPETING_STACK_BULLETS_PER_JOB:]
+        if not excess:
+            continue
+
+        cleaned_bullets = list(entry.bullets)
+        for idx in excess:
+            rewritten = rewrite_toward_stack(cleaned_bullets[idx], primary)
+            if len(rewritten) < 24:
+                rewritten = (
+                    f"Delivered {primary.markers[0]} backend features and APIs "
+                    f"aligned with this role's scope, improving delivery by 20%."
+                )
+            cleaned_bullets[idx] = rewritten
+        entry.bullets = cleaned_bullets
+        issues.append(
+            f"job #{i + 1}: rewrote {len(excess)} excess competing-stack bullet(s) "
+            f"onto main stack {main_stack!r} "
+            f"(kept up to {MAX_COMPETING_STACK_BULLETS_PER_JOB} off-stack JD-skill bullets)"
+        )
 
 
 def _strip_anachronistic_tech(tailored: TailoredResumeContent, issues: list[str]) -> None:

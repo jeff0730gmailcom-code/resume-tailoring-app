@@ -29,6 +29,7 @@ gpt-4o-mini call stays under the <5s tailor target - see app/core/config.py.
 from app.core.constants import EXPERIENCE_BULLET_COUNT
 from app.models.schemas import JdAnalysis, MasterCvData, ResumeMatch
 from app.services.career_tenure import career_tenure_phrase
+from app.services.stack_alignment import prompt_stack_rules_block
 from app.services.tech_timeline import prompt_era_rules_block
 
 RESUME_TAILOR_SYSTEM_PROMPT = """\
@@ -89,11 +90,18 @@ overlapping or later roles — never on 2013–2023 jobs. For older roles use \
 era-correct wording (API integrations, registries, cloud infrastructure, \
 lifecycle management, platform governance). Skills/summary may name \
 current JD tools without backdating them onto old jobs.
+
+STACK CONSISTENCY: MOST bullets in every job must use the application's \
+MAIN STACK (and its ecosystem) — about 6 of 8. Up to 1-2 bullets per job \
+may cover other skills named in the JD (React, Docker, Kafka, cloud, etc.). \
+Do not make an entire early role a different primary stack career (e.g. \
+all-PHP junior then .NET Tech Lead). Keep one primary stack story with \
+seniority progression; sprinkle secondary JD skills lightly.
 """
 
 
 def build_user_message(
-    cv_text: str, job_description: str, bullets_per_job: list[int] | None = None
+    cv_text: str, job_description: str, bullets_per_job: list[int] | None = None, main_stack: str = ""
 ) -> str:
     """Build the user-turn message combining the CV and target job description.
 
@@ -122,13 +130,15 @@ def build_user_message(
         f"MASTER CV:\n{cv_clip}\n\n"
         f"TARGET JOB DESCRIPTION:\n{jd_clip}"
         f"{bullet_override}\n\n"
+        f"{prompt_stack_rules_block(main_stack)}\n\n"
         "Produce the tailored resume now. Summary: 3-4 professional prose "
         "sentences (no 'Matched skills' / 'Transferable' labels). Years of "
         "experience must be the calendar span from the CV's earliest job start "
         "date to its latest job end date (present/current = today) — never invent "
         "a number. Skills: fill every category "
         "with every JD-relevant skill you can, required and preferred first, plus any other "
-        "fitting skill - do not leave it sparse."
+        "fitting skill - do not leave it sparse. Prefer MAIN STACK on most bullets; "
+        "a few secondary JD skills are OK."
     )
 
 
@@ -180,6 +190,11 @@ without backdating them onto old jobs. MCP (Model Context Protocol) did \
 not exist before 2024-11 — never claim MCP work in earlier roles; use API \
 integrations, registries, cloud infrastructure, lifecycle management, or \
 platform governance instead.
+
+STACK CONSISTENCY: MOST bullets in every job must use the MAIN STACK from \
+the user message (and its ecosystem) — about 6 of 8. Up to 1-2 bullets per \
+job may emphasize other JD-mentioned skills. Do not invent a different \
+primary stack career (e.g. all-PHP junior then .NET tech lead).
 """
 
 # Appended to RESUME_TAILOR_DYNAMIC_SYSTEM_PROMPT only when
@@ -238,6 +253,7 @@ def build_structured_user_message(
     job_description: str,
     bullets_per_job: list[int] | None = None,
     mode: str = "accurate",
+    main_stack: str = "",
 ) -> str:
     """Build a compact prompt from pre-parsed structured CV/JD data (see
     app/services/cv_structurer.py, jd_analyzer.py) instead of sending the
@@ -268,7 +284,7 @@ def build_structured_user_message(
             f'Job #{i + 1}: title "{entry.title}" at "{entry.company}" ({entry.dates}) - write '
             f"exactly {EXPERIENCE_BULLET_COUNT} bullets, fully generated to best match the target "
             "JD below (not this job's own real duties); keep them plausible for this title/era "
-            "and distinct from every other job's bullets. Obey TECH ERA for these dates."
+            "and distinct from every other job's bullets. Obey TECH ERA and MAIN STACK for these dates."
         )
     jobs_block = "\n\n".join(jobs_desc)
 
@@ -312,6 +328,7 @@ def build_structured_user_message(
     return (
         f"{mode_note}"
         f"{tenure_line}"
+        f"{prompt_stack_rules_block(main_stack)}\n\n"
         f"{prompt_era_rules_block()}\n\n"
         f"CANDIDATE JOBS (titles/companies/dates are fixed context - write bullets only):\n{jobs_block}\n\n"
         f"{jd_block}\n"
@@ -319,7 +336,8 @@ def build_structured_user_message(
         "Skills should cover every required + preferred JD skill plus any other skill genuinely "
         "relevant to this role - not limited to the candidate's own CV. Summary: 3-4 professional "
         "prose sentences using the CAREER TENURE phrase above, no meta labels. Exact bullet counts "
-        "above, fully JD-driven per job, no repeats across jobs. Obey TECH ERA for every job."
+        "above, fully JD-driven per job, no repeats across jobs. Obey TECH ERA; "
+        "keep MAIN STACK on most bullets, with a few secondary JD skills allowed."
     )
 
 

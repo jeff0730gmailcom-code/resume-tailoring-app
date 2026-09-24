@@ -320,6 +320,7 @@ async def tailor_resume(
     bullets_per_job: list[int] | None = None,
     perf: PerfReport | None = None,
     mode: str | None = None,
+    main_stack: str = "",
 ) -> tuple[TailoredResumeContent, AtsMatchInfo]:
     """Generate a tailored resume. Uses the compact structured prompt +
     dynamic-only output schema when master_cv.is_structured; otherwise
@@ -392,11 +393,19 @@ async def tailor_resume(
         if structured:
             system_prompt = get_dynamic_system_prompt(mode)
             user_message = build_structured_user_message(
-                master_cv, jd_analysis, resume_match, job_description, bullets_per_job, mode=mode
+                master_cv,
+                jd_analysis,
+                resume_match,
+                job_description,
+                bullets_per_job,
+                mode=mode,
+                main_stack=main_stack,
             )
         else:
             system_prompt = RESUME_TAILOR_SYSTEM_PROMPT
-            user_message = build_user_message(master_cv.raw_text, job_description, bullets_per_job)
+            user_message = build_user_message(
+                master_cv.raw_text, job_description, bullets_per_job, main_stack=main_stack
+            )
 
     response_format = TailoredDynamicContent if structured else TailoredResumeContent
     messages = [

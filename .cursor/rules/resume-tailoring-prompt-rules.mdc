@@ -38,7 +38,15 @@ on 2013–2023 roles). Put recent JD tools only on overlapping/later roles;
 older roles use era-correct wording (API integrations, registries, cloud
 infrastructure, lifecycle management, platform governance). Enforced in
 prompts and by `app/services/tech_timeline.py` +
-`resume_validator.validate_and_fix_resume`. Each bullet: starts with a
+`resume_validator.validate_and_fix_resume`. **STACK CONSISTENCY:**
+MOST bullets in every job must use the application's `main_stack` family
+(e.g. .NET) — about 6 of 8. Up to 1–2 bullets per job may cover other skills
+named in the JD (React, Docker, Kafka, cloud, etc.). Do not make an entire
+early role a different primary stack career (no all-PHP junior then .NET Tech
+Lead). Enforced via prompts (`main_stack` is sent to the AI) and
+`app/services/stack_alignment.py` (rewrites only excess competing-stack
+bullets).
+Each bullet: starts with a
 strong action verb, includes the technical implementation, the impact, and a
 measurable number whenever possible. Preferred shape: `Action + Technology +
 Impact + Number`. Every selectable template
