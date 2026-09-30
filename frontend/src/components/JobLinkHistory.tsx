@@ -39,15 +39,9 @@ function dayStamp(value: string): string {
 }
 
 /** SpreadsheetML (.xls) that Excel opens without extra libraries. */
-function downloadJobLinksExcel(rows: JobLinkHistoryItem[], includeUser: boolean, filenamePrefix: string): void {
-  const header = includeUser
-    ? ["Job link", "Stack", "Created at", "User", "Email"]
-    : ["Job link", "Stack", "Created at"];
-  const bodyRows = rows.map((row) =>
-    includeUser
-      ? [row.job_link, row.main_stack || "", formatWhen(row.created_at), row.user_name || "", row.user_email || ""]
-      : [row.job_link, row.main_stack || "", formatWhen(row.created_at)]
-  );
+function downloadJobLinksExcel(rows: JobLinkHistoryItem[], filenamePrefix: string): void {
+  const header = ["Job link", "Stack", "Created at"];
+  const bodyRows = rows.map((row) => [row.job_link, row.main_stack || "", formatWhen(row.created_at)]);
   const xmlRows = [header, ...bodyRows]
     .map(
       (cells) =>
@@ -193,7 +187,7 @@ export default function JobLinkHistory({
         <button
           type="button"
           disabled={filteredRows.length === 0}
-          onClick={() => downloadJobLinksExcel(filteredRows, showUserColumn, exportPrefix)}
+          onClick={() => downloadJobLinksExcel(filteredRows, exportPrefix)}
           className="rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-40"
         >
           Export to Excel (.xls)

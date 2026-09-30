@@ -108,10 +108,25 @@ def _normalize_job_link_key(raw: str) -> str:
     return key.lower()
 
 
+def is_telegram_job_link(raw: str) -> bool:
+    """True for Telegram postings such as https://t.me/..."""
+    from urllib.parse import urlparse
+
+    link = (raw or "").strip()
+    if not link:
+        return False
+    candidate = link if "://" in link else f"https://{link}"
+    host = (urlparse(candidate).hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host == "t.me" or host.endswith(".t.me")
+
+
 def list_unique_job_links(
     user_id: int | None = None,
     *,
     include_user: bool = False,
+    exclude_telegram: bool = False,
 ) -> list[dict]:
     """Unique non-empty job links, newest first.
 
@@ -119,6 +134,7 @@ def list_unique_job_links(
     When omitted, all users are included and links are deduped globally.
     Duplicate links keep the newest row's stack / created_at (and user info
     when ``include_user`` is True).
+    ``exclude_telegram`` drops t.me links (used for the all-users export).
     """
     from sqlalchemy.orm import defer
 
@@ -143,6 +159,8 @@ def list_unique_job_links(
         items: list[dict] = []
         for record in records:
             link = (getattr(record, "job_link", "") or "").strip()
+            if exclude_telegram and is_telegram_job_link(link):
+                continue
             key = _normalize_job_link_key(link)
             if not key or key in seen:
                 continue

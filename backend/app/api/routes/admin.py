@@ -122,8 +122,14 @@ async def admin_delete_user(user_id: int, admin: UserPublic = Depends(get_admin_
 
 @router.get("/job-links", response_model=list[JobLinkHistoryItem])
 async def admin_all_job_links(_admin: UserPublic = Depends(get_admin_user)) -> list[JobLinkHistoryItem]:
-    """All users' unique job links (duplicates collapsed globally), newest first."""
-    return [JobLinkHistoryItem(**item) for item in list_unique_job_links(include_user=True)]
+    """All users' unique job links (duplicates collapsed globally), newest first.
+
+    Telegram postings (t.me) are omitted from this combined list.
+    """
+    return [
+        JobLinkHistoryItem(**item)
+        for item in list_unique_job_links(include_user=True, exclude_telegram=True)
+    ]
 
 
 @router.get("/users/{user_id}/job-links", response_model=list[JobLinkHistoryItem])
