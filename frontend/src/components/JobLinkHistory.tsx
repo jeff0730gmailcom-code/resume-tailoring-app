@@ -38,6 +38,27 @@ function dayStamp(value: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+function jobLinkHost(link: string): string {
+  const raw = link.trim();
+  if (!raw) return "";
+  const candidate = raw.includes("://") ? raw : `https://${raw}`;
+  try {
+    const host = new URL(candidate).hostname.toLowerCase();
+    return host.startsWith("www.") ? host.slice(4) : host;
+  } catch {
+    return "";
+  }
+}
+
+/** Djinni, then DOU, then LinkedIn, then every other posting. */
+function jobLinkSortRank(link: string): number {
+  const host = jobLinkHost(link);
+  if (host === "djinni.co" || host.endsWith(".djinni.co")) return 0;
+  if (host === "dou.ua" || host.endsWith(".dou.ua")) return 1;
+  if (host === "linkedin.com" || host.endsWith(".linkedin.com") || host === "lnkd.in") return 2;
+  return 3;
+}
+
 /** SpreadsheetML (.xls) that Excel opens without extra libraries. */
 function downloadJobLinksExcel(rows: JobLinkHistoryItem[], filenamePrefix: string): void {
   const header = ["Job link", "Stack", "Created at"];
@@ -124,7 +145,7 @@ export default function JobLinkHistory({
 
   const filteredRows = useMemo(() => {
     const stackNeedle = stackFilter.trim().toLowerCase();
-    return rows.filter((row) => {
+    const matched = rows.filter((row) => {
       const day = dayStamp(row.created_at);
       if (createdFrom && (!day || day < createdFrom)) return false;
       if (createdTo && (!day || day > createdTo)) return false;
@@ -134,6 +155,7 @@ export default function JobLinkHistory({
       }
       return true;
     });
+    return matched.slice().sort((a, b) => jobLinkSortRank(a.job_link) - jobLinkSortRank(b.job_link));
   }, [rows, createdFrom, createdTo, stackFilter]);
 
   useEffect(() => {
