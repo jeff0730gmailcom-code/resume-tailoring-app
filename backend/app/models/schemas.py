@@ -58,9 +58,9 @@ class TailoredResumeContent(BaseModel):
     languages: list[str] = Field(
         default_factory=list,
         description=(
-            "FIXED, backend-only content (see app/core/constants.py's FIXED_LANGUAGES_SECTION) - "
-            "always this exact value regardless of the master CV's own Languages section. Never "
-            "read from the CV, never AI-generated, never part of ATS keyword matching."
+            "Backend-only spoken languages (see spoken_languages_for_candidate). "
+            "English — C1 for most candidates; omitted when the candidate is Sean. "
+            "Never read from the CV, never AI-generated, never part of ATS keyword matching."
         ),
     )
     certifications: list[str] = Field(

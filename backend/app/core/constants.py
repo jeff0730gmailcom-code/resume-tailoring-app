@@ -1,10 +1,10 @@
 """App-wide fixed constants that must never be sourced from AI output or
 from the candidate's own CV text.
 
-FIXED_LANGUAGES_SECTION backs the "Languages" section rule: it is always
-the final tailored resume's Languages section, regardless of what (if
-anything) the source CV's own Languages section said, and regardless of
-what the AI produces for any other field. See:
+FIXED_LANGUAGES_SECTION backs the "Languages" section rule: it is the
+tailored resume's Languages section for every candidate except Sean
+(US native — that section is omitted). It is never taken from the source
+CV or from AI output. See:
 - app/services/ai_tailor.py (_assemble_full_resume) - structured path splice
 - app/services/resume_validator.py (validate_and_fix_resume) - forces this
   value for both the structured and fallback (raw-CV-text AI) paths
@@ -31,3 +31,19 @@ See:
 FIXED_LANGUAGES_SECTION: list[str] = ["English — C1"]
 
 EXPERIENCE_BULLET_COUNT: int = 8
+
+
+def spoken_languages_for_candidate(name: str) -> list[str]:
+    """Spoken-language lines appended at the end of a tailored resume.
+
+    Sean is a US native, so his resumes omit this section. Every other
+    candidate keeps the fixed English — C1 line.
+    """
+    first = ""
+    for token in (name or "").replace(",", " ").split():
+        first = token.strip(".").lower()
+        if first:
+            break
+    if first == "sean":
+        return []
+    return list(FIXED_LANGUAGES_SECTION)

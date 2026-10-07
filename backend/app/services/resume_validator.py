@@ -33,7 +33,7 @@ wherever the underlying work supports a reasonable figure.
 """
 import re
 
-from app.core.constants import EXPERIENCE_BULLET_COUNT, FIXED_LANGUAGES_SECTION
+from app.core.constants import EXPERIENCE_BULLET_COUNT, spoken_languages_for_candidate
 from app.models.schemas import (
     MasterCvData,
     ResumeMatch,
@@ -141,14 +141,13 @@ def validate_and_fix_resume(
 
     _align_experience_to_main_stack(tailored, main_stack, issues)
 
-    # Languages: a FIXED, backend-only section (see app/core/constants.py) -
-    # never read from the master CV, never AI-generated, in EITHER the
-    # structured or fallback path. Force it unconditionally so no path (a
-    # fallback-mode AI slip, a future code change, etc.) can ever surface
-    # anything else here.
-    if tailored.languages != FIXED_LANGUAGES_SECTION:
-        issues.append(f"Languages section normalized to the fixed value: {FIXED_LANGUAGES_SECTION}")
-        tailored.languages = list(FIXED_LANGUAGES_SECTION)
+    # Spoken languages: backend-only (see app/core/constants.py). Never
+    # read from the master CV and never left as AI output. Sean (US native)
+    # gets no Languages section; everyone else gets English — C1.
+    spoken_languages = spoken_languages_for_candidate(master_cv.contact.name)
+    if tailored.languages != spoken_languages:
+        issues.append(f"Languages section normalized to: {spoken_languages or '(omitted)'}")
+        tailored.languages = spoken_languages
 
     # Certifications: in the structured path this is always spliced
     # verbatim by ai_tailor._assemble_full_resume and can't drift, but the

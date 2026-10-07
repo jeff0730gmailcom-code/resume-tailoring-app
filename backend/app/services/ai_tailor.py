@@ -34,7 +34,7 @@ import httpx
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 
 from app.core.config import settings
-from app.core.constants import EXPERIENCE_BULLET_COUNT, FIXED_LANGUAGES_SECTION
+from app.core.constants import EXPERIENCE_BULLET_COUNT, spoken_languages_for_candidate
 from app.models.schemas import (
     AtsMatchInfo,
     ExperienceEntry,
@@ -308,7 +308,7 @@ def _assemble_full_resume(
         experience=experience,
         education=master_cv.education,
         certifications=master_cv.certifications_raw,
-        languages=list(FIXED_LANGUAGES_SECTION),
+        languages=spoken_languages_for_candidate(master_cv.contact.name),
     )
 
 
