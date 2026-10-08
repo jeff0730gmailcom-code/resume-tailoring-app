@@ -48,6 +48,11 @@ from app.models.schemas import CvExperienceEntry  # noqa: E402
             "DBB Software",
         ),
         (
+            ["iBrain Technologies | Jul 2015 – Aug 2018", "Senior Full Stack Engineer"],
+            "Senior Full Stack Engineer",
+            "iBrain Technologies",
+        ),
+        (
             ["CTO", "Acme Corp", "Jan 2020 – Present"],
             "CTO",
             "Acme Corp",
@@ -122,6 +127,40 @@ Backend Engineer | DevOps Engineer (.NET & Cloud)/ DBB Software MARCH 2016 – A
     assert structured.experience[2].title.startswith("Tech Lead Full Stack Engineer")
     assert structured.experience[2].company == "1648 Factory"
     assert structured.experience[2].dates
+
+
+def test_structure_text_keeps_camel_case_employer():
+    """Company-then-title headers like Sean Johnston's CV. A lowercase brand
+    (iBrain) must not blank that job and force the unstructured AI path."""
+    cv_text = """
+Sean Johnston
+seanjohnston896@gmail.com
+
+SUMMARY
+Senior Full Stack Engineer.
+
+WORK EXPERIENCE
+NextLink Labs | Nov 2022 – July 2026
+Senior C# / .NET React Full Stack Engineer / Tech Lead
+- Led development of enterprise platforms.
+iBrain Technologies | Jul 2015 – Aug 2018
+Senior Full Stack Engineer
+- Delivered enterprise applications.
+WheelHouse IT | July 2014 – June 2015
+Software Engineer
+- Developed full-stack web applications.
+""".strip()
+    structured = _structure_text(cv_text)
+    assert structured is not None
+    assert structured.is_structured
+    assert [job.company for job in structured.experience] == [
+        "NextLink Labs",
+        "iBrain Technologies",
+        "WheelHouse IT",
+    ]
+    assert structured.experience[1].title == "Senior Full Stack Engineer"
+    assert "2015" in structured.experience[1].dates
+    assert "2018" in structured.experience[1].dates
 
 
 def test_structure_text_rejects_jobs_without_company():

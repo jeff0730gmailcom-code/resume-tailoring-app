@@ -746,7 +746,9 @@ def _looks_like_company_name(text: str) -> bool:
         return False
     if _looks_like_standalone_job_title(raw):
         return False
-    if raw[:1].islower():
+    # Duty lines and wrapped sentences start lowercase ("improved…", "and Azure").
+    # Camel-case brands do too ("iBrain Technologies", "eBay") and must stay employers.
+    if raw[:1].islower() and not re.match(r"^[a-z]{1,4}[A-Z]", raw):
         return False
     return raw.count(" ") <= 5 and not raw.endswith((".", ";"))
 
