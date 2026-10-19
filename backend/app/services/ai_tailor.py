@@ -34,7 +34,13 @@ import httpx
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 
 from app.core.config import settings
-from app.core.constants import EXPERIENCE_BULLET_COUNT, spoken_languages_for_candidate
+from app.core.constants import (
+    EXPERIENCE_BULLET_COUNT,
+    SEAN_CONTACT_EMAIL,
+    SEAN_CONTACT_PHONE,
+    is_sean_candidate,
+    spoken_languages_for_candidate,
+)
 from app.models.schemas import (
     AtsMatchInfo,
     ExperienceEntry,
@@ -301,8 +307,12 @@ def _assemble_full_resume(
             )
         )
 
+    contact = master_cv.contact
+    if is_sean_candidate(contact.name):
+        contact = contact.model_copy(update={"email": SEAN_CONTACT_EMAIL, "phone": SEAN_CONTACT_PHONE})
+
     return TailoredResumeContent(
-        contact=master_cv.contact,
+        contact=contact,
         summary=dynamic.summary,
         skills=normalize_ai_skills(dynamic.skills, master_cv),
         experience=experience,

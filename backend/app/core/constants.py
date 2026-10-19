@@ -33,17 +33,29 @@ FIXED_LANGUAGES_SECTION: list[str] = ["English — C1"]
 EXPERIENCE_BULLET_COUNT: int = 8
 
 
+SEAN_CONTACT_EMAIL = "seanjohnston7609@gmail.com"
+SEAN_CONTACT_PHONE = "+15612319507"
+
+
+def candidate_first_name(name: str) -> str:
+    for token in (name or "").replace(",", " ").split():
+        first = token.strip(".").lower()
+        if first:
+            return first
+    return ""
+
+
+def is_sean_candidate(name: str) -> bool:
+    """True only for a CV whose first name is Sean."""
+    return candidate_first_name(name) == "sean"
+
+
 def spoken_languages_for_candidate(name: str) -> list[str]:
     """Spoken-language lines appended at the end of a tailored resume.
 
     Sean is a US native, so his resumes omit this section. Every other
     candidate keeps the fixed English — C1 line.
     """
-    first = ""
-    for token in (name or "").replace(",", " ").split():
-        first = token.strip(".").lower()
-        if first:
-            break
-    if first == "sean":
+    if is_sean_candidate(name):
         return []
     return list(FIXED_LANGUAGES_SECTION)

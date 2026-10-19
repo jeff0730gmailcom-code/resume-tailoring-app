@@ -33,7 +33,13 @@ wherever the underlying work supports a reasonable figure.
 """
 import re
 
-from app.core.constants import EXPERIENCE_BULLET_COUNT, spoken_languages_for_candidate
+from app.core.constants import (
+    EXPERIENCE_BULLET_COUNT,
+    SEAN_CONTACT_EMAIL,
+    SEAN_CONTACT_PHONE,
+    is_sean_candidate,
+    spoken_languages_for_candidate,
+)
 from app.models.schemas import (
     MasterCvData,
     ResumeMatch,
@@ -140,6 +146,18 @@ def validate_and_fix_resume(
                 generated.company = original.company
 
     _align_experience_to_main_stack(tailored, main_stack, issues)
+
+    # Sean only: replace the header email and phone. Every other candidate
+    # keeps the contact details parsed from their own master CV.
+    if is_sean_candidate(master_cv.contact.name):
+        if (
+            tailored.contact.email != SEAN_CONTACT_EMAIL
+            or tailored.contact.phone != SEAN_CONTACT_PHONE
+        ):
+            issues.append("Sean contact email and phone replaced")
+            tailored.contact = tailored.contact.model_copy(
+                update={"email": SEAN_CONTACT_EMAIL, "phone": SEAN_CONTACT_PHONE}
+            )
 
     # Spoken languages: backend-only (see app/core/constants.py). Never
     # read from the master CV and never left as AI output. Sean (US native)
