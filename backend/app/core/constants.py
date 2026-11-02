@@ -34,7 +34,7 @@ EXPERIENCE_BULLET_COUNT: int = 8
 
 
 SEAN_CONTACT_EMAIL = "seanjohnston7609@gmail.com"
-SEAN_CONTACT_PHONE = "+15612319507"
+SEAN_CONTACT_PHONE = "17723617147"
 
 
 def candidate_first_name(name: str) -> str:
