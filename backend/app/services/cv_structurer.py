@@ -108,6 +108,9 @@ _DEGREE_KEYWORD_RE = re.compile(
 # right after the phone number in a space-joined contact line extracted
 # from a PDF, with no delimiter between them).
 _PHONE_TOKEN_RE = re.compile(r"^\+?\(?\d[\d\-.()]{5,}\d\)?$")
+# A US calling code left in front of a ZIP ("+1 32778 Tavares, FL, USA")
+# belongs on the phone, not on the address.
+_PLUS_ONE_BEFORE_ZIP_RE = re.compile(r"^\+1[\s\-]+(?=\d{5}\b)")
 
 
 def _is_name_only(text: str) -> bool:
@@ -497,7 +500,7 @@ def _extract_contact_from_lines(preamble_lines: list[str], *, split_tabs: bool =
             # an email or phone) - whatever's left over on it is safe to
             # treat as the location, even without a "City, Country" comma
             # (e.g. "11511 Obrenovac Serbia").
-            candidate = remainder.strip(" |,-–—")
+            candidate = _PLUS_ONE_BEFORE_ZIP_RE.sub("", remainder.strip(" |,-–—")).strip()
             if candidate and len(candidate) < 60 and "@" not in candidate:
                 location = candidate
             continue

@@ -13,9 +13,9 @@ from app.models.schemas import ContactInfo, MasterCvData, SkillCategories, Tailo
 from app.services.resume_validator import validate_and_fix_resume  # noqa: E402
 
 
-def _tailored(name: str, email: str, phone: str | None) -> TailoredResumeContent:
+def _tailored(name: str, email: str, phone: str | None, location: str = "Tavares, FL") -> TailoredResumeContent:
     return TailoredResumeContent(
-        contact=ContactInfo(name=name, email=email, phone=phone, location="Tavares, FL"),
+        contact=ContactInfo(name=name, email=email, phone=phone, location=location),
         summary="Summary.",
         skills=SkillCategories(),
         experience=[],
@@ -28,11 +28,16 @@ def _master(name: str) -> MasterCvData:
 
 
 def test_sean_email_and_phone_are_replaced():
-    tailored = _tailored("Sean Johnston", "seanjohnston896@gmail.com", None)
+    tailored = _tailored(
+        "Sean Johnston",
+        "seanjohnston896@gmail.com",
+        None,
+        location="+1 32778 Tavares, FL, USA",
+    )
     validate_and_fix_resume(tailored, _master("Sean Johnston"), None)
     assert tailored.contact.email == SEAN_CONTACT_EMAIL
-    assert tailored.contact.phone == SEAN_CONTACT_PHONE
-    assert tailored.contact.location == "Tavares, FL"
+    assert tailored.contact.phone == "+17723617147"
+    assert tailored.contact.location == "32778 Tavares, FL, USA"
 
 
 def test_other_candidates_keep_their_contact():

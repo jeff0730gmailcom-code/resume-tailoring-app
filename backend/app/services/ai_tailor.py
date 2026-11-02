@@ -59,7 +59,7 @@ from app.prompts.resume_tailor_prompt import (
     get_dynamic_system_prompt,
 )
 from app.services.ats_scorer import compute_ats_match
-from app.services.cv_structurer import clip_job_company, clip_job_title
+from app.services.cv_structurer import _PLUS_ONE_BEFORE_ZIP_RE, clip_job_company, clip_job_title
 from app.services.resume_validator import bullets_missing_metrics, normalize_ai_skills
 from app.services.text_sanitize import strip_broken_characters
 from app.utils.timing import PerfReport
@@ -309,7 +309,14 @@ def _assemble_full_resume(
 
     contact = master_cv.contact
     if is_sean_candidate(contact.name):
-        contact = contact.model_copy(update={"email": SEAN_CONTACT_EMAIL, "phone": SEAN_CONTACT_PHONE})
+        location = _PLUS_ONE_BEFORE_ZIP_RE.sub("", contact.location or "").strip()
+        contact = contact.model_copy(
+            update={
+                "email": SEAN_CONTACT_EMAIL,
+                "phone": SEAN_CONTACT_PHONE,
+                "location": location or contact.location,
+            }
+        )
 
     return TailoredResumeContent(
         contact=contact,

@@ -40,6 +40,7 @@ from app.core.constants import (
     is_sean_candidate,
     spoken_languages_for_candidate,
 )
+from app.services.cv_structurer import _PLUS_ONE_BEFORE_ZIP_RE
 from app.models.schemas import (
     MasterCvData,
     ResumeMatch,
@@ -150,13 +151,19 @@ def validate_and_fix_resume(
     # Sean only: replace the header email and phone. Every other candidate
     # keeps the contact details parsed from their own master CV.
     if is_sean_candidate(master_cv.contact.name):
+        location = _PLUS_ONE_BEFORE_ZIP_RE.sub("", tailored.contact.location or "").strip()
         if (
             tailored.contact.email != SEAN_CONTACT_EMAIL
             or tailored.contact.phone != SEAN_CONTACT_PHONE
+            or location != (tailored.contact.location or "")
         ):
             issues.append("Sean contact email and phone replaced")
             tailored.contact = tailored.contact.model_copy(
-                update={"email": SEAN_CONTACT_EMAIL, "phone": SEAN_CONTACT_PHONE}
+                update={
+                    "email": SEAN_CONTACT_EMAIL,
+                    "phone": SEAN_CONTACT_PHONE,
+                    "location": location or tailored.contact.location,
+                }
             )
 
     # Spoken languages: backend-only (see app/core/constants.py). Never
