@@ -33,7 +33,7 @@ FIXED_LANGUAGES_SECTION: list[str] = ["English — C1"]
 EXPERIENCE_BULLET_COUNT: int = 8
 
 
-SEAN_CONTACT_EMAIL = "seanjohnston7609@gmail.com"
+SEAN_CONTACT_EMAIL = "seanjohnston896@gmail.com"
 SEAN_CONTACT_PHONE = "+17723617147"
 
 
