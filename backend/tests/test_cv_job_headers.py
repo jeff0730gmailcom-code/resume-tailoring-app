@@ -163,6 +163,124 @@ Software Engineer
     assert "2018" in structured.experience[1].dates
 
 
+MARKO_STYLE_CV = """
+Marko Baranji
+Lajkovac, Serbia | markobaranjjin@gmail.com | +381 62 1495291
+
+EDUCATION
+Bachelor of Computer Science, University of Belgrade | 2009 to 2013
+
+PROFESSIONAL EXPERIENCE
+Self Employed
+Senior Python Backend Engineer | Sep 2025 to Present
+- Design Python backend and AI systems.
+iPlena
+Senior Python Backend Engineer | Dec 2022 to Nov 2025
+- Architected Python backend services.
+Sudonum Pty Ltd
+Python Backend and Cloud Engineer | Jul 2020 to Nov 2022
+- Built Django services.
+Ingsoftware
+Python Backend Engineer | Jan 2018 to Jul 2020
+- Built backend microservices.
+Codetribe
+Backend Oriented Full Stack Engineer | Sep 2015 to Dec 2017
+- Built portals.
+Vega IT
+Frontend Developer | Jun 2013 to Aug 2015
+- Built web applications.
+
+SELECTED PROJECT IMPACT
+- Delivered production platforms across remote teams.
+""".strip()
+
+
+def test_structure_text_company_above_title_keeps_every_job_and_education():
+    """Marko-style PDFs put the employer on the line above "Title | Dates",
+    including a camel-case brand, and education above the jobs."""
+    structured = _structure_text(MARKO_STYLE_CV)
+    assert structured is not None
+    assert structured.is_structured
+    assert structured.contact.name == "Marko Baranji"
+    assert structured.contact.email == "markobaranjjin@gmail.com"
+    assert structured.contact.phone == "+381 62 1495291"
+    assert structured.contact.location == "Lajkovac, Serbia"
+    assert [(job.company, job.title, job.dates) for job in structured.experience] == [
+        ("Self Employed", "Senior Python Backend Engineer", "Sep 2025 to Present"),
+        ("iPlena", "Senior Python Backend Engineer", "Dec 2022 to Nov 2025"),
+        ("Sudonum Pty Ltd", "Python Backend and Cloud Engineer", "Jul 2020 to Nov 2022"),
+        ("Ingsoftware", "Python Backend Engineer", "Jan 2018 to Jul 2020"),
+        ("Codetribe", "Backend Oriented Full Stack Engineer", "Sep 2015 to Dec 2017"),
+        ("Vega IT", "Frontend Developer", "Jun 2013 to Aug 2015"),
+    ]
+    assert len(structured.education) == 1
+    assert structured.education[0].degree == "Bachelor of Computer Science"
+    assert structured.education[0].institution == "University of Belgrade"
+    assert "2009" in structured.education[0].dates
+    assert "2013" in structured.education[0].dates
+    assert all("Delivered production platforms" not in bullet for job in structured.experience for bullet in job.bullets)
+
+
+def test_structure_text_jobs_after_education_still_kept():
+    """Stream order can place older employers after Education. They are still jobs."""
+    cv_text = """
+Marko Baranji
+marko@example.com
+
+PROFESSIONAL EXPERIENCE
+Self Employed
+Senior Python Backend Engineer | Sep 2025 to Present
+- Design services.
+iPlena
+Senior Python Backend Engineer | Dec 2022 to Nov 2025
+- Built APIs.
+EDUCATION
+Bachelor of Computer Science, University of Belgrade | 2009 to 2013
+SELECTED PROJECT IMPACT
+- Extra impact line that is not a job.
+Ingsoftware
+Python Backend Engineer | Jan 2018 to Jul 2020
+- Built services.
+Vega IT
+Frontend Developer | Jun 2013 to Aug 2015
+- Built interfaces.
+""".strip()
+    structured = _structure_text(cv_text)
+    assert structured is not None
+    assert [job.company for job in structured.experience] == [
+        "Self Employed",
+        "iPlena",
+        "Ingsoftware",
+        "Vega IT",
+    ]
+    assert structured.education[0].institution == "University of Belgrade"
+
+
+def test_structure_text_reads_education_variants():
+    cv_text = """
+Ada Lovelace
+ada@example.com
+
+Academic Qualifications
+B.Sc. Computer Science, University of Belgrade | 09.2009 - 07.2013
+
+Experience
+Analytical Engines | Jan 2014 – Present
+Software Engineer
+- Designed engines.
+""".strip()
+    structured = _structure_text(cv_text)
+    assert structured is not None
+    assert structured.is_structured
+    assert structured.experience[0].company == "Analytical Engines"
+    assert structured.education
+    assert "2009" in structured.education[0].dates
+    assert "2013" in structured.education[0].dates
+    blob = f"{structured.education[0].degree} {structured.education[0].institution}".lower()
+    assert "computer science" in blob
+    assert "belgrade" in blob
+
+
 def test_structure_text_rejects_jobs_without_company():
     cv_text = """
 Jane Doe

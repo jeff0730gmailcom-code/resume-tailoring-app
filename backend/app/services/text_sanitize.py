@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import re
 
+# PDF text often uses a non-breaking space inside "Title | Sep 2025 to Present".
+# That space is not a normal " ", so later stripping leaves a dangling "|".
+_UNICODE_SPACE_RE = re.compile(r"[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]")
 _BROKEN_CHAR_RE = re.compile(
     r"["
     r"\ufffd\ufffc\ufeff"  # replacement, object replacement, BOM
@@ -27,7 +30,8 @@ def strip_broken_characters(text: str) -> str:
     """Drop tofu/replacement/dingbat glyphs and tidy dangling '|' separators."""
     if not text:
         return ""
-    cleaned = _BROKEN_CHAR_RE.sub("", text)
+    cleaned = _UNICODE_SPACE_RE.sub(" ", text)
+    cleaned = _BROKEN_CHAR_RE.sub("", cleaned)
     cleaned = _CONTROL_EXCEPT_WHITESPACE.sub("", cleaned)
     cleaned = _MULTI_PIPE_RE.sub(" | ", cleaned)
     cleaned = _EDGE_SEP_RE.sub("", cleaned)

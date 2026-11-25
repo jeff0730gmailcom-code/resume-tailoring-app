@@ -46,6 +46,18 @@ def extract_text_from_cv(file_path: Path, document: DocumentObject | None = None
 
 
 def _extract_from_pdf(file_path: Path) -> str:
+    """Read a PDF in visual order.
+
+    pypdf follows the content stream. Two-column and header-above-bullet
+    resumes then come out with every bullet first and the employer/dates
+    later, often after Education, and some generators repeat that stream
+    several times. PyMuPDF's sort follows the page from top to bottom, so
+    each job's company and dates stay with that job.
+    """
+    visual = _extract_pdf_visual_order(file_path)
+    if visual.strip():
+        return visual
+
     try:
         reader = PdfReader(str(file_path))
     except Exception as exc:  # noqa: BLE001 - surface as a parsing error
@@ -55,6 +67,23 @@ def _extract_from_pdf(file_path: Path) -> str:
     for page in reader.pages:
         pages_text.append(page.extract_text() or "")
     return "\n".join(pages_text)
+
+
+def _extract_pdf_visual_order(file_path: Path) -> str:
+    try:
+        import fitz
+    except Exception:  # noqa: BLE001 - pypdf remains the fallback
+        return ""
+    try:
+        document = fitz.open(str(file_path))
+    except Exception:  # noqa: BLE001 - caller falls back to pypdf
+        return ""
+    try:
+        return "\n".join((page.get_text("text", sort=True) or "") for page in document)
+    except Exception:  # noqa: BLE001
+        return ""
+    finally:
+        document.close()
 
 
 def _extract_from_docx(file_path: Path, document: DocumentObject | None = None) -> str:

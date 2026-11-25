@@ -67,7 +67,8 @@ _MAJOR_PREFIX_RE = re.compile(r"^(major|degree|field of study)\s*:\s*", re.IGNOR
 _MONTH_RE = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-zA-Z]*\.?"
 # Numeric month prefix ("09/", "2/") - handles "MM/YYYY" / "M/YYYY" date
 # formats (e.g. "09/2023 - 2/2026"), not just "Month YYYY" / bare "YYYY".
-_NUMERIC_MONTH_RE = r"(?:0?[1-9]|1[0-2])/"
+# Slash or dot: "09/2013" and "09.2013".
+_NUMERIC_MONTH_RE = r"(?:0?[1-9]|1[0-2])[/.]"
 _YEAR_SIDE_RE = rf"(?:{_MONTH_RE}\s+|{_NUMERIC_MONTH_RE})?(?:19|20)\d{{2}}"
 _FULL_DATE_RANGE_RE = re.compile(
     rf"{_YEAR_SIDE_RE}\s*(?:[-–—]|to)\s*(?:{_YEAR_SIDE_RE}|present|current|now)",
@@ -96,10 +97,16 @@ _TITLE_KEYWORD_RE = re.compile(
 # Similarly disambiguates a degree line from an institution line when a
 # 2-line education block's order can't be assumed (see _extract_education).
 _DEGREE_KEYWORD_RE = re.compile(
-    r"\b(bachelor|master|phd|doctorate|associate|diploma|degree|certificate|"
-    r"bsc|msc|mba|b\.a\.|m\.a\.|b\.s\.|m\.s\.)\b",
+    r"\b(bachelor|master|phd|ph\.d|doctorate|associate|diploma|degree|certificate|"
+    r"bsc|msc|mba|beng|meng|btech|mtech|llb|llm|"
+    r"b\.a\.|m\.a\.|b\.s\.|m\.s\.|b\.sc|m\.sc|b\.eng|m\.eng)\b",
     re.IGNORECASE,
 )
+_INSTITUTION_RE = re.compile(
+    r"\b(university|college|school|institute|faculty|academy|polytechnic)\b",
+    re.IGNORECASE,
+)
+_YEAR_TOKEN_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 # A single whitespace-free token that's clearly a phone number (e.g.
 # "+381621897164" or "555-123-4567") - tried before the looser _PHONE_RE
 # search across a whole line, because _PHONE_RE's char class allows
@@ -381,6 +388,20 @@ def _parse_job_header(header_lines: list[str]) -> tuple[str, str, str]:
     if piped:
         return piped[0], piped[1], dates
 
+    # "Self Employed | Senior Python Backend Engineer" — employer on the left,
+    # role on the right. The usual splitter assumes the last segment is the
+    # employer, which swaps these two.
+    pipe_parts = [part.strip() for part in re.split(r"\s*\|\s*", without_dates) if part.strip()]
+    if len(pipe_parts) >= 2:
+        left, right = pipe_parts[0], pipe_parts[-1]
+        if (
+            _TITLE_KEYWORD_RE.search(right)
+            and not _TITLE_KEYWORD_RE.search(left)
+            and _looks_like_company_name(left)
+        ):
+            title = right if len(pipe_parts) == 2 else " | ".join(pipe_parts[1:])
+            return title, left, dates
+
     # Single remaining line in "Title / Company - Location" shape - split
     # it with split_title_company (above) rather than the generic
     # separator split below (which would wrongly treat the whole "Title /
@@ -415,6 +436,35 @@ def _extract_contact(document: DocumentObject) -> ContactInfo:
         if len(raw_lines) >= 6:
             break
     return _extract_contact_from_lines(raw_lines, split_tabs=True)
+
+
+def _take_phone(remainder: str) -> tuple[str, str] | None:
+    """Pull a phone number out of a contact line.
+
+    " +381 62 1495291" is three tokens. The long group alone is a valid
+    phone, which used to leave "+381 62" stuck on the city. Short groups
+    immediately in front of that number (a country or area code) belong
+    to the phone.
+    """
+    tokens = remainder.split()
+    for index, token in enumerate(tokens):
+        cleaned = token.strip(",;")
+        if not _PHONE_TOKEN_RE.match(cleaned):
+            continue
+        start = index
+        while start > 0:
+            prev = tokens[start - 1].strip(",;")
+            if prev in {"|", "-", "–", "—"}:
+                break
+            bare = prev.strip("|")
+            if re.fullmatch(r"\+\d{1,3}", bare) or (bare.isdigit() and 1 <= len(bare) <= 3):
+                start -= 1
+                continue
+            break
+        phone = " ".join(part.strip(",;") for part in tokens[start : index + 1])
+        left = " ".join(tokens[:start] + tokens[index + 1 :])
+        return phone, left
+    return None
 
 
 def _extract_contact_from_lines(preamble_lines: list[str], *, split_tabs: bool = False) -> ContactInfo:
@@ -476,10 +526,9 @@ def _extract_contact_from_lines(preamble_lines: list[str], *, split_tabs: bool =
                 found_contact_detail = True
 
         if phone is None:
-            token_match = next((t for t in remainder.split() if _PHONE_TOKEN_RE.match(t.strip(",;"))), None)
-            if token_match:
-                phone = token_match.strip(",;")
-                remainder = remainder.replace(token_match, "", 1).strip()
+            taken = _take_phone(remainder)
+            if taken:
+                phone, remainder = taken
                 found_contact_detail = True
             else:
                 match = _PHONE_RE.search(remainder)
@@ -611,9 +660,17 @@ def _extract_education(education_lines: list[str]) -> list[EducationEntry]:
         combined = " | ".join(block)
         date_match = _FULL_DATE_RANGE_RE.search(combined)
         dates = date_match.group(0).strip() if date_match else ""
+        # "University of Belgrade, 2013" and "B.Sc. Computer Science (2009 - 2013)"
+        # when the range separator was a form the range matcher missed, or the
+        # line only has one graduation year.
+        if not dates:
+            years = _YEAR_TOKEN_RE.findall(combined)
+            if years and (_DEGREE_KEYWORD_RE.search(combined) or _INSTITUTION_RE.search(combined)):
+                dates = years[0] if len(years) == 1 else f"{years[0]} - {years[-1]}"
 
         remainder_parts = [
-            _FULL_DATE_RANGE_RE.sub("", line).strip(" |,-–—()") for line in block
+            _YEAR_TOKEN_RE.sub("", _FULL_DATE_RANGE_RE.sub("", line)).strip(" |,-–—()")
+            for line in block
         ]
         remainder_parts = [part for part in remainder_parts if part]
         leftover = " ".join(remainder_parts).strip()
@@ -623,6 +680,8 @@ def _extract_education(education_lines: list[str]) -> list[EducationEntry]:
             continue
 
         degree, institution = _split_degree_institution(remainder_parts)
+        if not degree and not institution:
+            continue
 
         entries.append(
             EducationEntry(
@@ -631,7 +690,15 @@ def _extract_education(education_lines: list[str]) -> list[EducationEntry]:
                 dates=_clean_extracted_text(dates),
             )
         )
-    return entries
+    deduped: list[EducationEntry] = []
+    seen: set[tuple[str, str, str]] = set()
+    for entry in entries:
+        key = (entry.degree.lower(), entry.institution.lower(), entry.dates.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(entry)
+    return deduped
 
 
 def _split_degree_institution(remainder_parts: list[str]) -> tuple[str, str]:
@@ -649,10 +716,7 @@ def _split_degree_institution(remainder_parts: list[str]) -> tuple[str, str]:
     if not parts:
         return remainder, ""
     degree_hit = next((p for p in parts if _DEGREE_KEYWORD_RE.search(p)), None)
-    uni_hit = next(
-        (p for p in parts if re.search(r"\b(university|college|school|institute)\b", p, re.IGNORECASE)),
-        None,
-    )
+    uni_hit = next((p for p in parts if _INSTITUTION_RE.search(p)), None)
     if degree_hit or uni_hit:
         return degree_hit or parts[0], uni_hit or ""
     return parts[0], parts[1] if len(parts) > 1 else ""
@@ -813,6 +877,11 @@ def _looks_like_trailing_employer(line: str) -> bool:
         return True
     if re.match(r"^[A-Z][A-Za-z0-9&.'-]{1,40}$", raw) and not _TITLE_KEYWORD_RE.search(raw):
         return True
+    # Single-token camel brands ("iPlena", "eBay", "iBrain") sit on their own
+    # line above the next "Title | Dates" line. A lowercase first letter used
+    # to leave them on the previous job and blank the real employer.
+    if re.match(r"^[a-z]{1,4}[A-Z][A-Za-z0-9&.'-]*$", raw) and not _TITLE_KEYWORD_RE.search(raw):
+        return True
     return False
 
 
@@ -833,6 +902,55 @@ def _looks_like_trailing_job_header(line: str) -> bool:
     return False
 
 
+def _looks_like_education_line(line: str) -> bool:
+    """A degree or school line, including "Bachelor …, University … | 2009 to 2013".
+
+    These lines contain a year range, so the job splitter would otherwise
+    treat them as an employer and then drop the real Education section.
+    """
+    raw = " ".join((line or "").split())
+    if not raw or len(raw) > 180 or BULLET_PREFIX_RE.match(raw):
+        return False
+    if raw.rstrip().endswith((".", ";")):
+        return False
+    has_degree = bool(_DEGREE_KEYWORD_RE.search(raw))
+    has_school = bool(_INSTITUTION_RE.search(raw))
+    if not has_degree and not has_school:
+        return False
+    # "Software Engineer, State University | 2018 - 2020" is a job.
+    # "Certificate Manager | Acme | 2020 - 2022" is a job too — "certificate"
+    # alone must not pull a role into Education.
+    strong_degree = bool(
+        re.search(
+            r"\b(bachelor|master of|masters|phd|ph\.d|doctorate|associate of|"
+            r"bsc|msc|mba|b\.a\.|m\.a\.|b\.s\.|m\.s\.|b\.sc|m\.sc|b\.eng|m\.eng)\b",
+            raw,
+            re.IGNORECASE,
+        )
+    )
+    if _TITLE_KEYWORD_RE.search(raw) and not strong_degree:
+        return False
+    has_year = bool(_FULL_DATE_RANGE_RE.search(raw) or _YEAR_TOKEN_RE.search(raw))
+    if has_year and (strong_degree or has_school or has_degree):
+        return True
+    if strong_degree and len(raw) <= 90:
+        return True
+    return bool(has_school and not _TITLE_KEYWORD_RE.search(raw) and len(raw.split()) <= 6)
+
+
+def _looks_like_unknown_heading(line: str) -> bool:
+    """All-caps section labels the heading list does not know, such as
+    "SELECTED PROJECT IMPACT". They must close the current job so their
+    bullets are not stored on the last employer."""
+    raw = " ".join((line or "").split())
+    if not raw or len(raw) > 48 or len(raw.split()) < 3:
+        return False
+    if BULLET_PREFIX_RE.match(raw) or _FULL_DATE_RANGE_RE.search(raw):
+        return False
+    letters = [ch for ch in raw if ch.isalpha()]
+    return len(letters) >= 8 and all(ch.isupper() for ch in letters)
+
+
 def _looks_like_job_boundary(line: str) -> bool:
     """True for a line that starts a new job entry inside the Experience
     section of a plain-text CV: contains a full date range and reads like
@@ -845,6 +963,8 @@ def _looks_like_job_boundary(line: str) -> bool:
     sentence punctuation - real header lines practically never end with
     a period/semicolon."""
     if _PAGE_NOISE_RE.match(line.strip()):
+        return False
+    if _looks_like_education_line(line):
         return False
     if not _FULL_DATE_RANGE_RE.search(line):
         return False
@@ -931,6 +1051,52 @@ def _merge_wrapped_bullets(bullet_lines: list[str]) -> list[str]:
     return [bullet for bullet in merged if bullet]
 
 
+def _dedupe_experience(experience: list[CvExperienceEntry]) -> list[CvExperienceEntry]:
+    """Collapse the same job repeated by a PDF text layer.
+
+    Keeps the copy that has an employer and the most bullets. Two different
+    titles at the same employer stay separate.
+    """
+    kept: list[CvExperienceEntry] = []
+    for entry in experience:
+        title = " ".join((entry.title or "").lower().split())
+        company = " ".join((entry.company or "").lower().split())
+        dates = " ".join((entry.dates or "").lower().split())
+        match_at: int | None = None
+        for index, prev in enumerate(kept):
+            prev_title = " ".join((prev.title or "").lower().split())
+            prev_company = " ".join((prev.company or "").lower().split())
+            prev_dates = " ".join((prev.dates or "").lower().split())
+            same_role = bool(title and dates and title == prev_title and dates == prev_dates)
+            same_employer = bool(
+                company
+                and dates
+                and company == prev_company
+                and dates == prev_dates
+                and (not title or not prev_title or title == prev_title)
+            )
+            if same_role or same_employer:
+                match_at = index
+                break
+        if match_at is None:
+            kept.append(entry)
+            continue
+        prev = kept[match_at]
+        prev_score = (
+            bool((prev.company or "").strip()),
+            bool((prev.title or "").strip()),
+            len(prev.bullets),
+        )
+        entry_score = (
+            bool((entry.company or "").strip()),
+            bool((entry.title or "").strip()),
+            len(entry.bullets),
+        )
+        if entry_score > prev_score:
+            kept[match_at] = entry
+    return kept
+
+
 def _structure_text(cv_text: str) -> MasterCvData | None:
     """Plain-text line-level structuring - the primary structuring path for
     PDF uploads (which have no paragraph/style structure available from
@@ -966,7 +1132,7 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
     pending_header_lines: list[str] = []
     section: str | None = None
 
-    for line in lines:
+    for index, line in enumerate(lines):
         if _PAGE_NOISE_RE.match(line):
             continue
 
@@ -979,6 +1145,28 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
                 continue
             line = remainder
 
+        # Degree lines carry a year range. Capture them even when the heading
+        # was missed or a later column placed them outside the Education block.
+        if _looks_like_education_line(line):
+            education_lines.append(line)
+            continue
+
+        if section is not None and _looks_like_unknown_heading(line):
+            section = "other"
+            current_job = None
+            pending_header_lines = []
+            continue
+
+        # Column-ordered PDFs put older employers after Education or another
+        # heading. A "Title | Dates" line re-opens experience and keeps the
+        # company line parked just above it.
+        if (
+            section not in (None, "experience")
+            and _looks_like_job_boundary(line)
+            and (_TITLE_KEYWORD_RE.search(line) or _looks_like_company_date_header(line))
+        ):
+            section = "experience"
+
         if section is None:
             preamble.append(line)
             continue
@@ -988,11 +1176,26 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
         elif section == "skills":
             skills_lines.append(line)
         elif section == "education":
-            education_lines.append(line)
+            # Employer parked under Education by a column-ordered PDF
+            # ("Ingsoftware" then "Python Backend Engineer | Jan 2018 to Jul 2020").
+            # Only steal that line when the next line is actually a job header,
+            # so a school name is not treated as the next employer.
+            nxt = lines[index + 1] if index + 1 < len(lines) else ""
+            if (_looks_like_company_name(line) or _looks_like_standalone_job_title(line)) and (
+                _looks_like_job_boundary(nxt) or _looks_like_standalone_job_title(nxt)
+            ):
+                pending_header_lines.append(line)
+                pending_header_lines = pending_header_lines[-3:]
+            else:
+                education_lines.append(line)
         elif section == "languages":
             languages_lines.append(line)
         elif section == "certifications":
             certifications_lines.append(line)
+        elif section == "other":
+            if _looks_like_standalone_job_title(line) or _looks_like_company_name(line):
+                pending_header_lines.append(line)
+                pending_header_lines = pending_header_lines[-3:]
         elif section == "experience":
             if _looks_like_job_boundary(line):
                 stolen: list[str] = []
@@ -1054,15 +1257,20 @@ def _structure_text(cv_text: str) -> MasterCvData | None:
                 entry.company = candidate
                 break
 
-    if not _experience_headers_reliable(experience):
+    experience = _dedupe_experience(experience)
+    if not experience or not _experience_headers_reliable(experience):
         return None
+
+    education = _extract_education(education_lines)
+    if not education:
+        education = _extract_education([line for line in lines if _looks_like_education_line(line)])
 
     return MasterCvData(
         contact=_extract_contact_from_lines(preamble),
         summary=" ".join(summary_lines),
         skills_raw=_extract_skills_raw(_merge_wrapped_skill_lines(skills_lines)),
         experience=experience,
-        education=_extract_education(education_lines),
+        education=education,
         languages_raw=_extract_raw_lines(languages_lines),
         certifications_raw=_extract_raw_lines(certifications_lines),
         is_structured=True,

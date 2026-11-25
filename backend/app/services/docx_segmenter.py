@@ -47,6 +47,8 @@ _EXPERIENCE_HEADINGS = {
 }
 _EDUCATION_HEADINGS = {
     "education", "academic background", "academic history", "qualifications",
+    "educational background", "academic qualifications",
+    "education and training", "education & training",
 }
 # Preserved VERBATIM, never touched by AI or in-place editing - see
 # cv_structurer._extract_raw_lines and app/prompts/resume_tailor_prompt.py's
