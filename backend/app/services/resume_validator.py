@@ -71,6 +71,7 @@ from app.services.stack_alignment import (
 from app.services.tech_timeline import (
     forbidden_techs_for_job,
     neutralize_anachronistic_text,
+    techs_absent_from_career,
     text_mentions_forbidden,
 )
 
@@ -265,14 +266,31 @@ def _align_experience_to_main_stack(
         )
 
 
+_SKILL_FIELDS = (
+    "languages",
+    "backend",
+    "frontend",
+    "cloud",
+    "devops",
+    "databases",
+    "ai",
+    "tools",
+)
+
+
 def _strip_anachronistic_tech(tailored: TailoredResumeContent, issues: list[str]) -> None:
-    """Remove tools from job bullets when the job ended before they existed."""
+    """Delete any technology named before its public release.
+
+    Bullets are checked against that job's end date. The summary and the
+    skills list may name a tool only when at least one job overlaps the
+    release month.
+    """
     for i, entry in enumerate(tailored.experience):
         forbidden = forbidden_techs_for_job(entry.dates or "")
         if not forbidden:
             continue
         cleaned: list[str] = []
-        changed = False
+        touched: set[str] = set()
         for bullet in entry.bullets:
             hits = text_mentions_forbidden(bullet, forbidden)
             if not hits:
@@ -283,19 +301,38 @@ def _strip_anachronistic_tech(tailored: TailoredResumeContent, issues: list[str]
             # so EXPERIENCE_BULLET_COUNT stays intact.
             if len(rewritten) < 24:
                 rewritten = (
-                    f"Delivered cloud infrastructure and platform governance work "
-                    f"aligned with this role's scope and timeframe."
+                    "Delivered cloud infrastructure and platform governance work "
+                    "aligned with this role's scope and timeframe."
                 )
-            if rewritten != bullet:
-                changed = True
+            touched.update(rule.key for rule in hits)
             cleaned.append(rewritten)
         entry.bullets = cleaned
-        if changed:
-            names = ", ".join(sorted({r.key for r in forbidden}))
+        if touched:
             issues.append(
-                f"job #{i + 1}: removed anachronistic tech ({names}) "
+                f"job #{i + 1}: removed anachronistic tech ({', '.join(sorted(touched))}) "
                 f"from bullets — tools that did not exist during this role"
             )
+
+    absent = techs_absent_from_career(tailored.experience)
+    if not absent:
+        return
+    summary = tailored.summary or ""
+    if text_mentions_forbidden(summary, absent):
+        tailored.summary = neutralize_anachronistic_text(summary, absent)
+        issues.append(
+            "summary: removed technologies that predate every role on this resume"
+        )
+    for field in _SKILL_FIELDS:
+        kept: list[str] = []
+        removed = False
+        for item in getattr(tailored.skills, field):
+            if text_mentions_forbidden(item, absent):
+                removed = True
+                continue
+            kept.append(item)
+        if removed:
+            setattr(tailored.skills, field, kept)
+            issues.append(f"skills.{field}: removed technologies that predate every role on this resume")
 
 
 
@@ -534,6 +571,12 @@ def close_ats_gaps(tailored: TailoredResumeContent, resume_match: ResumeMatch, m
     # Preferred first, then the full matched/transferable set.
     preferred = _preferred_terms_for_summary(resume_match)
     candidates = list(dict.fromkeys(preferred + _match_skill_terms(resume_match)))
+    # Do not write a tool into Skills or the summary when no job overlaps
+    # its release. validate_and_fix_resume already stripped the bullets.
+    too_early = techs_absent_from_career(tailored.experience)
+    if too_early:
+        preferred = [term for term in preferred if not text_mentions_forbidden(term, too_early)]
+        candidates = [term for term in candidates if not text_mentions_forbidden(term, too_early)]
     cv_casing = {token.lower(): token for token in master_cv.skills_raw}
 
     existing_text = " ".join(
@@ -580,8 +623,9 @@ def close_ats_gaps(tailored: TailoredResumeContent, resume_match: ResumeMatch, m
             "Summary: wove preferred/nice-to-have terms into prose: " + ", ".join(injected)
         )
     tailored.summary = woven
-    # close_ats_gaps rewrites the summary after validate_and_fix_resume, so
-    # re-apply CV-derived years here as the last summary mutation.
+    # The weave above can name a tool the jobs never overlapped. Strip again,
+    # then re-apply CV-derived years as the last summary mutation.
+    _strip_anachronistic_tech(tailored, issues)
     _apply_career_tenure(tailored, master_cv, issues)
 
     return issues

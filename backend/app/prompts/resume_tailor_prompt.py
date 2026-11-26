@@ -83,13 +83,11 @@ ATS ALIGNMENT: every skill you place in Skills should also be echoed at \
 least once in the summary or a bullet, ideally using the JD's own wording \
 - ATS scanners match literal text, not synonyms.
 
-TECH ERA (HARD RULE): never put a technology in a job's bullets if that \
-job ended before the technology publicly existed. Recent JD tools (e.g. \
-MCP / Model Context Protocol, introduced 2024-11) belong only on \
-overlapping or later roles — never on 2013–2023 jobs. For older roles use \
-era-correct wording (API integrations, registries, cloud infrastructure, \
-lifecycle management, platform governance). Skills/summary may name \
-current JD tools without backdating them onto old jobs.
+TECH ERA (HARD RULE): never mention any technology before its public release. \
+This covers every language, framework, database, cloud service, DevOps tool, \
+and AI product. A tool may appear on a job only when that job was still \
+running on or after the tool's release, and in the summary or skills only \
+when at least one job overlaps that release. The backend deletes violations.
 
 STACK CONSISTENCY: MOST bullets in every job must use the application's \
 MAIN STACK (and its ecosystem) — about 6 of 8. Up to 1-2 bullets per job \
@@ -131,6 +129,7 @@ def build_user_message(
         f"TARGET JOB DESCRIPTION:\n{jd_clip}"
         f"{bullet_override}\n\n"
         f"{prompt_stack_rules_block(main_stack)}\n\n"
+        f"{prompt_era_rules_block()}\n\n"
         "Produce the tailored resume now. Summary: 3-4 professional prose "
         "sentences (no 'Matched skills' / 'Transferable' labels). Years of "
         "experience must be the calendar span from the CV's earliest job start "
@@ -183,13 +182,11 @@ TITLES: you may suggest a JD-aligned title, but the backend always uses \
 the master CV's own original job title in the final output - your \
 suggestion is never shown.
 
-TECH ERA (HARD RULE): never put a technology in a job's bullets if that \
-job ended before the technology publicly existed. Put recent tools only on \
-overlapping / later roles. Skills/summary may name current JD tools \
-without backdating them onto old jobs. MCP (Model Context Protocol) did \
-not exist before 2024-11 — never claim MCP work in earlier roles; use API \
-integrations, registries, cloud infrastructure, lifecycle management, or \
-platform governance instead.
+TECH ERA (HARD RULE): never mention any technology before its public release. \
+Every language, framework, database, cloud service, DevOps tool, and AI \
+product follows this rule. Use a tool on a job only when that job overlaps \
+its release. Summary and skills may name it only when at least one job \
+overlaps that release. The backend deletes any earlier mention.
 
 STACK CONSISTENCY: MOST bullets in every job must use the MAIN STACK from \
 the user message (and its ecosystem) — about 6 of 8. Up to 1-2 bullets per \
@@ -204,11 +201,10 @@ primary stack career (e.g. all-PHP junior then .NET tech lead).
 AGGRESSIVE_MODE_ADDENDUM = """
 
 AGGRESSIVE MODE - MAXIMIZE ATS MATCH: every required and preferred JD skill \
-must land in skills + summary + >=1 bullet, not just a passing mention. \
-Write bullets as if the candidate's whole career was built around this JD \
-EXCEPT never violate TECH ERA — do not backdate tools onto jobs that ended \
-before those tools existed (put recent tools only on recent overlapping \
-roles; keep older jobs era-plausible). \
+must land in skills + summary + >=1 bullet whose dates overlap that tool's release, \
+not just a passing mention, and never on an earlier job. \
+Write bullets as if the candidate's whole career was built around this JD. \
+Still obey TECH ERA: never name a tool before its release month. \
 Rewrite the summary to lead with the JD's own job-title terminology and top \
 2-3 required qualifications. Put ALL JD-relevant skills first in each \
 category. Weight the most recent job's bullets heaviest, but keep every \
@@ -223,8 +219,8 @@ job's bullets fully JD-driven and non-repetitive.
 AGGRESSIVE_MATCH_MODE_ADDENDUM = """
 
 AGGRESSIVE MATCH (target >95% ATS): write summary, skills, and bullets as \
-if the role were custom-built for this JD, while still obeying TECH ERA \
-(no backdating tools onto jobs that ended before they existed). Prefer JD \
+if the role were custom-built for this JD. Still obey TECH ERA: never name \
+a tool before its release month. Prefer JD \
 terminology in titles. Include every JD required AND preferred/nice-to-have \
 skill in the skills list, and weave the most important ones into the \
 summary and recent overlapping roles' bullets as prose (no meta labels).

@@ -54,6 +54,105 @@ def test_neutralize_mcp_phrases():
     assert "model context protocol" not in cleaned.lower()
 
 
+def test_every_technology_family_is_dated_not_only_mcp():
+    """Languages, frameworks, cloud, data, DevOps, and AI products all have dates."""
+    from app.services.tech_timeline import TECH_RULES
+
+    keys = {rule.key for rule in TECH_RULES}
+    for name in (
+        "python", "typescript", "golang", "react", "fastapi", "django",
+        "docker", "kubernetes", "terraform", "github actions",
+        "postgresql", "redis", "kafka", "aws", "azure", "gcp",
+        "pytorch", "langchain", "pinecone", "chatgpt", "mcp",
+    ):
+        assert name in keys
+
+    # A 2012 role can use Python and Postgres, not Docker, Kubernetes, React, or FastAPI.
+    old = "Jun 2012 to Aug 2012"
+    assert job_allows_tech(old, TECH_INTRODUCED["python"])
+    assert job_allows_tech(old, TECH_INTRODUCED["postgresql"])
+    for name in ("docker", "kubernetes", "terraform", "react", "fastapi", "langchain", "mcp"):
+        assert not job_allows_tech(old, TECH_INTRODUCED[name])
+
+    rules = forbidden_techs_for_job(old)
+    bullet = (
+        "Built Docker images and Kubernetes services with React, FastAPI, "
+        "Terraform, LangChain, and MCP, cutting deploy time by 30%."
+    )
+    cleaned = neutralize_anachronistic_text(bullet, text_mentions_forbidden(bullet, rules))
+    lowered = cleaned.lower()
+    for banned in ("docker", "kubernetes", "react", "fastapi", "terraform", "langchain", "mcp"):
+        assert banned not in lowered
+
+    # "java" must not eat "javascript", and "react" must not eat "reactive".
+    java_rules = [rule for rule in TECH_RULES if rule.key == "java"]
+    react_rules = [rule for rule in TECH_RULES if rule.key == "react"]
+    assert "javascript" in neutralize_anachronistic_text("Wrote JavaScript services.", java_rules).lower()
+    assert not text_mentions_forbidden("Built reactive services.", react_rules)
+
+
+def test_release_dates_block_tools_before_they_existed():
+    assert not job_allows_tech("Jan 2018 to Jul 2020", TECH_INTRODUCED["langchain"])
+    assert not job_allows_tech("Jun 2013 to Aug 2015", TECH_INTRODUCED["fastapi"])
+    assert not job_allows_tech("Jun 2013 to Aug 2015", TECH_INTRODUCED["next.js"])
+    assert job_allows_tech("Sep 2025 to Present", TECH_INTRODUCED["mcp"])
+    assert job_allows_tech("Dec 2022 to Nov 2025", TECH_INTRODUCED["mcp"])
+    assert not job_allows_tech("Jul 2020 to Nov 2022", TECH_INTRODUCED["gpt-4o"])
+    early = forbidden_techs_for_job("Jan 2014 – Dec 2014")
+    assert text_mentions_forbidden("Built reactive services.", early) == []
+    assert text_mentions_forbidden("Shipped React Native screens and a Next.js portal.", early)
+    # A 2023-2024 role may say GPT-4, and that pattern must not eat "gpt-4o"
+    # when only the later model is too new... both are too new for 2014, so
+    # check the regex directly: stripping gpt-4 leaves gpt-4o intact.
+    from app.services.tech_timeline import TECH_RULES
+
+    gpt4_rules = [rule for rule in TECH_RULES if "gpt-4" in rule.aliases and "gpt-4o" not in rule.aliases]
+    assert "gpt-4o" in neutralize_anachronistic_text("Tuned gpt-4o prompts.", gpt4_rules).lower()
+    assert "gpt-4" not in neutralize_anachronistic_text("Tuned gpt-4 prompts.", gpt4_rules).lower()
+
+
+def test_summary_and_skills_drop_tools_no_job_overlaps():
+    tailored = TailoredResumeContent(
+        contact=ContactInfo(name="Marko Baranji"),
+        summary="Backend engineer using LangChain, Pinecone, and MCP for document search.",
+        skills=SkillCategories(ai=["LangChain", "MCP"], backend=["FastAPI", "Django"]),
+        experience=[
+            ExperienceEntry(
+                title="Python Backend Engineer",
+                company="Ingsoftware",
+                dates="Jan 2018 to Jul 2020",
+                bullets=["Built Django APIs for fintech clients, cutting response time by 30%."] * 8,
+            )
+        ],
+        education=[],
+        certifications=[],
+        languages=[],
+    )
+    master = MasterCvData(
+        contact=ContactInfo(name="Marko Baranji"),
+        is_structured=True,
+        experience=[
+            CvExperienceEntry(
+                title="Python Backend Engineer",
+                company="Ingsoftware",
+                dates="Jan 2018 to Jul 2020",
+                bullets=[],
+            )
+        ],
+        skills_raw=[],
+        certifications_raw=[],
+        raw_text="",
+    )
+    validate_and_fix_resume(tailored, master, None)
+    blob = f"{tailored.summary} {' '.join(tailored.skills.ai)} {' '.join(tailored.skills.backend)}".lower()
+    assert "langchain" not in blob
+    assert "mcp" not in blob
+    assert "pinecone" not in blob
+    # FastAPI shipped Dec 2018, and this role ran through Jul 2020, so it overlaps.
+    assert "fastapi" in blob
+    assert "django" in blob
+
+
 def test_validator_strips_mcp_from_old_roles_keeps_recent():
     intern_bullets = [
         "Built simple Python scripts to populate a prototype MCP registry with 1,200 entries.",
