@@ -227,3 +227,131 @@ def test_validator_strips_mcp_from_old_roles_keeps_recent():
 
     recent = " ".join(tailored.experience[1].bullets).lower()
     assert "mcp" in recent
+
+
+def test_rag_acronym_is_dated_may_2020():
+    """Resumes say RAG, not the paper title. A pre-2020 job cannot keep either."""
+    assert TECH_INTRODUCED["rag"] == date(2020, 5, 1)
+    assert not job_allows_tech("July 2015 – Aug 2018", TECH_INTRODUCED["rag"])
+    assert job_allows_tech("Sep 2018 – Aug 2022", TECH_INTRODUCED["rag"])
+
+    early = forbidden_techs_for_job("July 2015 – Aug 2018")
+    for innocent in (
+        "coverage",
+        "fragment",
+        "drag",
+        "average",
+        "ragged",
+        "ragtime",
+        "brag",
+    ):
+        assert text_mentions_forbidden(innocent, early) == []
+
+    bullet = (
+        "Connected ML APIs for context-aware summarization, implementing RAG "
+        "to maintain relevance while cutting API token usage 18%."
+    )
+    cleaned = neutralize_anachronistic_text(bullet, text_mentions_forbidden(bullet, early))
+    assert "rag" not in cleaned.lower()
+    assert "relevance" in cleaned.lower()
+    assert "18%" in cleaned
+
+    spelled = "Shipped retrieval-augmented generation (RAG) for 200k documents."
+    cleaned_spelled = neutralize_anachronistic_text(
+        spelled, text_mentions_forbidden(spelled, early)
+    )
+    assert "rag" not in cleaned_spelled.lower()
+    assert "retrieval" not in cleaned_spelled.lower()
+    assert "()" not in cleaned_spelled
+
+    later = forbidden_techs_for_job("Sep 2018 – Aug 2022")
+    kept = "Coached teams on pytest and RAG design patterns for 4 engineers."
+    assert text_mentions_forbidden(kept, later) == [] or all(
+        rule.key != "rag" for rule in text_mentions_forbidden(kept, later)
+    )
+
+
+def test_stripping_a_name_does_not_leave_a_broken_sentence():
+    """Deleting FastAPI must not leave 'evolving to patterns' or 'and endpoints'."""
+    early = forbidden_techs_for_job("July 2014 – June 2015")
+    flask = (
+        "Implemented core Python REST APIs with Flask evolving to FastAPI patterns, "
+        "delivering stable backend foundations for new SaaS modules."
+    )
+    cleaned_flask = neutralize_anachronistic_text(
+        flask, text_mentions_forbidden(flask, early)
+    )
+    assert "fastapi" not in cleaned_flask.lower()
+    assert "evolving to" not in cleaned_flask.lower()
+    assert "to patterns" not in cleaned_flask.lower()
+    assert "flask" in cleaned_flask.lower()
+    assert "stable backend" in cleaned_flask.lower()
+
+    django = (
+        "Developed Django and FastAPI endpoints for document upload and retrieval, "
+        "using Pydantic validation to prevent malformed payloads across 8 services."
+    )
+    cleaned_django = neutralize_anachronistic_text(
+        django, text_mentions_forbidden(django, early)
+    )
+    assert "fastapi" not in cleaned_django.lower()
+    assert "and endpoints" not in cleaned_django.lower()
+    assert "django" in cleaned_django.lower()
+    assert "document upload" in cleaned_django.lower()
+
+
+def test_validator_strips_rag_from_pre_2020_job_and_keeps_it_later():
+    ibrain = (
+        "Connected ML APIs for context-aware summarization, implementing RAG "
+        "to maintain relevance while cutting API token usage 18%."
+    )
+    valor = "Coached teams on pytest best practices and RAG design patterns, mentoring 4 engineers."
+    tailored = TailoredResumeContent(
+        contact=ContactInfo(name="Sean Johnston"),
+        summary="Engineer using retrieval-augmented generation and RAG on recent platforms.",
+        skills=SkillCategories(ai=["RAG", "Retrieval Augmented Generation"]),
+        experience=[
+            ExperienceEntry(
+                title="Senior Python Engineer",
+                company="iBrain Technologies",
+                dates="July 2015 – Aug 2018",
+                bullets=[ibrain] * 8,
+            ),
+            ExperienceEntry(
+                title="Senior Python Engineer",
+                company="Valor Software",
+                dates="Sep 2018 – Aug 2022",
+                bullets=[valor] * 8,
+            ),
+        ],
+        education=[],
+        certifications=[],
+        languages=[],
+    )
+    master = MasterCvData(
+        contact=ContactInfo(name="Sean Johnston"),
+        is_structured=True,
+        experience=[
+            CvExperienceEntry(
+                title="Senior Python Engineer",
+                company="iBrain Technologies",
+                dates="July 2015 – Aug 2018",
+                bullets=[],
+            ),
+            CvExperienceEntry(
+                title="Senior Python Engineer",
+                company="Valor Software",
+                dates="Sep 2018 – Aug 2022",
+                bullets=[],
+            ),
+        ],
+        skills_raw=[],
+        certifications_raw=[],
+        raw_text="",
+    )
+    validate_and_fix_resume(tailored, master, None)
+    for bullet in tailored.experience[0].bullets:
+        assert "rag" not in bullet.lower()
+    assert "rag" in " ".join(tailored.experience[1].bullets).lower()
+    assert "rag" in tailored.summary.lower()
+    assert any("rag" in item.lower() for item in tailored.skills.ai)

@@ -85,7 +85,8 @@ least once in the summary or a bullet, ideally using the JD's own wording \
 
 TECH ERA (HARD RULE): never mention any technology before its public release. \
 This covers every language, framework, database, cloud service, DevOps tool, \
-and AI product. A tool may appear on a job only when that job was still \
+and AI product, written as a full name or an acronym (RAG, MCP, GPT-4, and \
+the rest). A tool may appear on a job only when that job was still \
 running on or after the tool's release, and in the summary or skills only \
 when at least one job overlaps that release. The backend deletes violations.
 
@@ -184,7 +185,8 @@ suggestion is never shown.
 
 TECH ERA (HARD RULE): never mention any technology before its public release. \
 Every language, framework, database, cloud service, DevOps tool, and AI \
-product follows this rule. Use a tool on a job only when that job overlaps \
+product follows this rule, including acronyms (RAG, MCP, GPT-4, and the \
+rest). Use a tool on a job only when that job overlaps \
 its release. Summary and skills may name it only when at least one job \
 overlaps that release. The backend deletes any earlier mention.
 

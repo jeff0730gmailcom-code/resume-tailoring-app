@@ -369,6 +369,9 @@ TECH_INTRODUCED: dict[str, date] = {
     "model context protocol": date(2024, 11, 1),
     "retrieval augmented generation": date(2020, 5, 1),
     "retrieval-augmented generation": date(2020, 5, 1),
+    # Resumes write the acronym. The word boundary keeps "drag", "coverage",
+    # "fragment", "average", "ragged", and "ragtime" intact.
+    "rag": date(2020, 5, 1),
     "generative ai": date(2022, 1, 1),
     "llm": date(2018, 10, 1),
     "llms": date(2018, 10, 1),
@@ -434,21 +437,49 @@ _OTHER_PHRASE_SUBS: dict[str, list[tuple[re.Pattern[str], str]]] = {
 }
 
 
-def _alias_regex(alias: str) -> re.Pattern[str]:
+# A framework name often owns the next noun ("FastAPI endpoints", "FastAPI-based").
+# Delete that noun with the name so the sentence does not keep "and endpoints"
+# or "evolving to patterns" after the product itself is gone.
+_ROLE_NOUN = (
+    r"(?:[-\s]+based)?"
+    r"(?:\s+(?:microservices?|services?|endpoints?|patterns?|apis?|apps|"
+    r"applications?|frameworks?|libraries|pipelines?|schemas?|models?|"
+    r"stacks?|tooling|workflows?|components?|interfaces?|platforms?))?"
+)
+
+
+def _alias_body(alias: str) -> str:
+    """Tool-name pattern with no anchors. Dots and hyphens are equivalent."""
+    if alias.startswith("."):
+        return re.escape(alias)
+    pieces = [piece for piece in re.split(r"[\s.]+", alias.strip()) if piece]
+    if len(pieces) > 1:
+        return r"[\s.\-]+".join(re.escape(piece) for piece in pieces)
+    return re.escape(alias).replace(r"\-", r"[-\s]?")
+
+
+def _anchored_alias(alias: str, suffix: str = "") -> re.Pattern[str]:
     """Match the tool name, not a longer token that merely contains it.
 
     "gpt-4" must not hit "gpt-4o". "react" must not hit "reactive".
-    "java" must not hit "javascript". Multi-word names also match dots
-    and hyphens ("next.js" / "next js").
+    "java" must not hit "javascript". "rag" must not hit "coverage".
+    Multi-word names also match dots and hyphens ("next.js" / "next js").
+    A leading-dot name (".net") keeps the old unanchored left side so it
+    still matches inside "asp.net".
     """
+    body = _alias_body(alias)
     if alias.startswith("."):
-        return re.compile(rf"(?i){re.escape(alias)}(?![A-Za-z0-9])")
-    pieces = [piece for piece in re.split(r"[\s.]+", alias.strip()) if piece]
-    if len(pieces) > 1:
-        body = r"[\s.\-]+".join(re.escape(piece) for piece in pieces)
-    else:
-        body = re.escape(alias).replace(r"\-", r"[-\s]?")
-    return re.compile(rf"(?i)(?<![A-Za-z0-9]){body}(?![A-Za-z0-9])")
+        return re.compile(rf"(?i){body}(?![A-Za-z0-9]){suffix}")
+    return re.compile(rf"(?i)(?<![A-Za-z0-9]){body}(?![A-Za-z0-9]){suffix}")
+
+
+def _alias_regex(alias: str) -> re.Pattern[str]:
+    return _anchored_alias(alias)
+
+
+def _alias_removal_regex(alias: str) -> re.Pattern[str]:
+    """Same match as _alias_regex, also consuming a following role noun."""
+    return _anchored_alias(alias, _ROLE_NOUN)
 
 
 def job_allows_tech(job_dates: str, introduced: date) -> bool:
@@ -500,13 +531,40 @@ def text_mentions_forbidden(text: str, rules: list[TechRule]) -> list[TechRule]:
 
 
 def _tidy_removed_tech(text: str) -> str:
+    """Close the hole left when a product name is deleted.
+
+    "Flask evolving to FastAPI patterns" must not survive as
+    "Flask evolving to patterns", and "Django and FastAPI endpoints"
+    must not survive as "Django and endpoints".
+    """
     updated = text
     updated = re.sub(r"\(\s*\)", "", updated)
     updated = re.sub(r"\[\s*\]", "", updated)
+    updated = re.sub(r"(?i)\bto\s+(and|or)\b", r"\1", updated)
+    updated = re.sub(
+        r"(?i)\b(?:evolving|migrating|moving|switching|upgrading|transitioning)\s+to\b(?=\s*(?:[,.;:]|$))",
+        "",
+        updated,
+    )
+    updated = re.sub(
+        r"(?i)\b(?:implementing|integrating|adopting|leveraging|using|via|with|including)\s+(?=to\b)",
+        "",
+        updated,
+    )
+    updated = re.sub(
+        r"(?i)\b(?:and|or)\s+(?=(?:for|to|with|using|via|across|while|that|which)\b)",
+        "",
+        updated,
+    )
     updated = re.sub(r"\s+([,.;:])", r"\1", updated)
     updated = re.sub(r"(,\s*){2,}", ", ", updated)
     updated = re.sub(r"(?i)\b(and|or|with|using|via|including)\s+(and|or)\b", r"\1", updated)
-    updated = re.sub(r"(?i)\s+(and|or)\s*([,.;])", r"\2", updated)
+    updated = re.sub(r"(?i)\s+(and|or|with|using|via|including|to)\s*([,.;])", r"\2", updated)
+    updated = re.sub(
+        r"(?i)\s+\b(and|or|with|using|via|including|to)\b\s*$",
+        "",
+        updated,
+    )
     updated = re.sub(r"\s{2,}", " ", updated)
     return updated.strip(" -–,;/")
 
@@ -533,7 +591,7 @@ def neutralize_anachronistic_text(text: str, rules: list[TechRule]) -> str:
         seen.add(key)
         for pattern, repl in _OTHER_PHRASE_SUBS.get(key, []):
             updated = pattern.sub(repl, updated)
-        updated = _alias_regex(alias).sub("", updated)
+        updated = _alias_removal_regex(alias).sub("", updated)
     return _tidy_removed_tech(updated)
 
 
@@ -542,7 +600,8 @@ def prompt_era_rules_block() -> str:
     return (
         "TECH ERA (HARD RULE): never mention any technology before its public release. "
         "This covers every language, framework, library, database, cloud service, "
-        "DevOps tool, and AI product. A tool may appear on a job only when that job "
+        "DevOps tool, and AI product, written as a full name or an acronym "
+        "(RAG, MCP, GPT-4, and the rest). A tool may appear on a job only when that job "
         "was still running on or after the tool's release month (Present = today). "
         "Summary and Skills may name it only when at least one job overlaps that month. "
         "The backend deletes every violation."
